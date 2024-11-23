@@ -1,0 +1,24 @@
+{
+    "name": "driveme",
+    "version": "1.0.0",
+    "private": true,
+    "workspaces": [
+      "client",
+      "driver",
+      "admin",
+      "backend",
+      "shared"
+    ],
+    "scripts": {
+      "dev:client": "cd client && npm run dev",
+      "dev:driver": "cd driver && npm run dev",
+      "dev:admin": "cd admin && npm run dev",
+      "dev:backend": "cd backend && npm run dev",
+      "install:all": "npm install && npm run install:apps",
+      "install:apps": "npm run install:client && npm run install:driver && npm run install:admin && npm run install:backend",
+      "install:client": "cd client && npm install",
+      "install:driver": "cd driver && npm install",
+      "install:admin": "cd admin && npm install",
+      "install:backend": "cd backend && npm install"
+    }
+  }
