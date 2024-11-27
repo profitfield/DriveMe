@@ -5,6 +5,7 @@ import { AuthController } from '../controllers/auth.controller';
 import { AuthService } from '../services/auth.service';
 import { JwtService } from '../services/jwt.service';
 import { UsersModule } from './users.module';
+import { TelegramAuthValidator } from '../validators/telegram-auth.validator';
 
 @Module({
   imports: [
@@ -19,7 +20,11 @@ import { UsersModule } from './users.module';
     })
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtService],
+  providers: [
+    AuthService, 
+    JwtService,
+    TelegramAuthValidator
+  ],
   exports: [AuthService, JwtService]
 })
 export class AuthModule {}

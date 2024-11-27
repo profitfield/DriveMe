@@ -15,29 +15,75 @@ import { Order } from './entities/order.entity';
 import { AdminUser } from './entities/admin-user.entity';
 import { AdminLog } from './entities/admin-log.entity';
 import { AdminSettings } from './entities/admin-settings.entity';
+import { ChatMessage } from './entities/chat-message.entity';
+import { AuditLog } from './entities/audit-log.entity';
+import { Notification } from './entities/notification.entity';
+import { FileUpload } from './entities/file-upload.entity';
+import { Session } from './entities/session.entity';
+import { Transaction } from './entities/transaction.entity';
+import { SuspiciousActivity } from './entities/suspicious-activity.entity';
 
 // Модули
 import { UsersModule } from './modules/users.module';
 import { DriversModule } from './modules/drivers.module';
 import { OrdersModule } from './modules/orders.module';
 import { AdminModule } from './modules/admin.module';
+import { RedisModule } from './modules/redis.module';
+import { SecurityModule } from './modules/security.module';
 
 // Guards
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AdminRolesGuard } from './guards/admin-roles.guard';
+import { SecurityMonitoringGuard } from './guards/security-monitoring.guard';
+import { BruteforceGuard } from './guards/bruteforce.guard';
+import { CsrfGuard } from './guards/csrf.guard';
 
 // Стратегии
 import { JwtStrategy } from './strategies/jwt.strategy';
+
+// Сервисы
+import { SecurityLogger } from './services/logger.service';
+import { EncryptionService } from './services/encryption.service';
+import { SecureStorageService } from './services/secure-storage.service';
+import { BruteforceProtectionService } from './services/bruteforce-protection.service';
+import { CsrfService } from './services/csrf.service';
+import { SecureFileStorageService } from './services/secure-file-storage.service';
+import { SecureChatService } from './services/secure-chat.service';
+import { AuditService } from './services/audit.service';
+import { SecureNotificationService } from './services/secure-notification.service';
+import { SecureUploadService } from './services/secure-upload.service';
+import { SessionManagementService } from './services/session-management.service';
+import { SecureTransactionService } from './services/secure-transaction.service';
+import { SuspiciousActivityService } from './services/suspicious-activity.service';
+import { ContentValidationService } from './services/content-validation.service';
+import { APISecurityService } from './services/api-security.service';
 
 @Module({
   imports: [
     // Конфигурация
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: ['.env', `.env.${process.env.NODE_ENV}`],
+      expandVariables: true,
     }),
 
     // База данных
     TypeOrmModule.forRoot(databaseConfig),
+    TypeOrmModule.forFeature([
+      ChatMessage, 
+      AuditLog, 
+      Notification,
+      FileUpload,
+      Session,
+      Transaction,
+      SuspiciousActivity
+    ]),
+
+    // Redis
+    RedisModule,
+
+    // Безопасность
+    SecurityModule,
 
     // Аутентификация
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -62,6 +108,22 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     // JWT стратегия
     JwtStrategy,
 
+    // Сервисы безопасности
+    SecurityLogger,
+    EncryptionService,
+    SecureStorageService,
+    BruteforceProtectionService,
+    CsrfService,
+    SecureFileStorageService,
+    SecureChatService,
+    AuditService,
+    SecureNotificationService,
+    SecureUploadService,
+    SessionManagementService,
+    SecureTransactionService,
+    SuspiciousActivityService,
+    ContentValidationService,
+
     // Глобальные guards
     {
       provide: APP_GUARD,
@@ -70,11 +132,37 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     {
       provide: APP_GUARD,
       useClass: AdminRolesGuard
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SecurityMonitoringGuard
+    },
+    {
+      provide: APP_GUARD,
+      useClass: BruteforceGuard
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CsrfGuard
     }
   ],
   exports: [
     PassportModule,
-    JwtModule
+    JwtModule,
+    SecurityLogger,
+    EncryptionService,
+    SecureStorageService,
+    BruteforceProtectionService,
+    CsrfService,
+    SecureFileStorageService,
+    SecureChatService,
+    AuditService,
+    SecureNotificationService,
+    SecureUploadService,
+    SessionManagementService,
+    SecureTransactionService,
+    SuspiciousActivityService,
+    ContentValidationService
   ]
 })
 export class AppModule {}

@@ -1,86 +1,108 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsString, IsNumber, IsObject, IsOptional } from 'class-validator';
+import { 
+  IsEnum, 
+  IsNotEmpty, 
+  IsString, 
+  IsNumber, 
+  IsObject, 
+  IsOptional, 
+  IsDateString, 
+  Min, 
+  Max, 
+  ValidateNested,
+  IsLatitude,
+  IsLongitude
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { OrderType, OrderStatus } from '../entities/order.entity';
 import { CarClass } from '../entities/driver.entity';
 
 export class AddressDto {
-  @ApiProperty()
   @IsString()
   @IsNotEmpty()
   address!: string;
 
-  @ApiProperty()
-  @IsNumber()
+  @IsLatitude()
   latitude!: number;
 
-  @ApiProperty()
-  @IsNumber()
+  @IsLongitude()
   longitude!: number;
 }
 
 export class CreateOrderDto {
-  @ApiProperty({ enum: OrderType })
   @IsEnum(OrderType)
+  @IsNotEmpty()
   type!: OrderType;
 
-  @ApiProperty({ enum: CarClass })
   @IsEnum(CarClass)
+  @IsNotEmpty()
   carClass!: CarClass;
 
-  @ApiProperty()
-  @IsString()
+  @IsDateString()
   @IsNotEmpty()
   pickupDatetime!: string;
 
-  @ApiProperty()
   @IsObject()
+  @ValidateNested()
   @Type(() => AddressDto)
   pickupAddress!: AddressDto;
 
-  @ApiProperty({ required: false })
   @IsObject()
+  @ValidateNested()
   @IsOptional()
   @Type(() => AddressDto)
   destinationAddress?: AddressDto;
 
-  @ApiProperty({ required: false })
   @IsNumber()
   @IsOptional()
+  @Min(1)
+  @Max(12)
   durationHours?: number;
 }
 
 export class UpdateOrderStatusDto {
-  @ApiProperty({ enum: OrderStatus })
   @IsEnum(OrderStatus)
+  @IsNotEmpty()
   status!: OrderStatus;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
 }
 
 export class OrderResponseDto {
-  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
   id!: string;
 
-  @ApiProperty({ enum: OrderType })
+  @IsEnum(OrderType)
   type!: OrderType;
 
-  @ApiProperty({ enum: CarClass })
+  @IsEnum(CarClass)
   carClass!: CarClass;
 
-  @ApiProperty()
+  @IsNumber()
+  @Min(0)
   price!: number;
 
-  @ApiProperty()
+  @IsNumber()
+  @Min(0)
   commission!: number;
 
-  @ApiProperty()
+  @IsDateString()
   pickupDatetime!: Date;
 
-  @ApiProperty()
+  @ValidateNested()
+  @Type(() => AddressDto)
   pickupAddress!: AddressDto;
 
-  @ApiProperty({ required: false })
+  @ValidateNested()
+  @IsOptional()
+  @Type(() => AddressDto)
   destinationAddress?: AddressDto;
 
-  @ApiProperty({ required: false })
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  @Max(12)
   durationHours?: number;
 }

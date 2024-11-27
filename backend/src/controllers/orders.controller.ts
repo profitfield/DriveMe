@@ -4,6 +4,8 @@ import { OrdersService } from '../services/orders.service';
 import { CreateOrderDto, UpdateOrderStatusDto } from '../dto/order.dto';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { Order } from '../entities/order.entity';
+import { RateLimit } from '../decorators/rate-limit.decorator';
+import { rateLimitConfig } from '../config/rate-limit.config';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -15,6 +17,7 @@ export class OrdersController {
   @Post()
   @ApiOperation({ summary: 'Create a new order' })
   @ApiResponse({ status: 201, description: 'Order successfully created' })
+  @RateLimit(rateLimitConfig.orders.create)
   async createOrder(
     @Request() req,
     @Body() createOrderDto: CreateOrderDto
@@ -47,6 +50,7 @@ export class OrdersController {
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update order status' })
   @ApiResponse({ status: 200, description: 'Order status updated' })
+  @RateLimit(rateLimitConfig.orders.status)
   async updateOrderStatus(
     @Param('id') id: string,
     @Request() req,

@@ -18,14 +18,20 @@ export class AdminAuthService {
       where: { email }
     });
 
-    if (admin && await bcrypt.compare(password, admin.password)) {
-      const { password, ...result } = admin;
-      return result;
+    if (!admin) {
+      return null;
     }
-    return null;
+
+    const isPasswordValid = await bcrypt.compare(password, admin.password);
+    if (!isPasswordValid) {
+      return null;
+    }
+
+    const { password: _, ...result } = admin;
+    return result;
   }
 
-  async login(admin: AdminUser) {
+  async login(admin: Partial<AdminUser>) {
     const payload = {
       sub: admin.id,
       email: admin.email,
@@ -53,7 +59,8 @@ export class AdminAuthService {
       throw new UnauthorizedException('Admin not found');
     }
 
-    if (!await bcrypt.compare(currentPassword, admin.password)) {
+    const isPasswordValid = await bcrypt.compare(currentPassword, admin.password);
+    if (!isPasswordValid) {
       throw new UnauthorizedException('Current password is incorrect');
     }
 
