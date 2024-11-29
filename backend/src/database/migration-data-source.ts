@@ -1,9 +1,11 @@
 import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
-import { FileUpload } from '../entities/file-upload.entity';
-import { AdminUser } from '../entities/admin-user.entity';
+import { User } from '../entities/user.entity';
+import { Driver } from '../entities/driver.entity';
+import { Order } from '../entities/order.entity';
+import { ChatMessage } from '../entities/chat-message.entity';
+import { Transaction } from '../entities/transaction.entity';
 
-// Загружаем переменные окружения
 config();
 
 export const MigrationDataSource = new DataSource({
@@ -15,7 +17,7 @@ export const MigrationDataSource = new DataSource({
   database: process.env.DB_NAME || 'driveme',
   synchronize: false,
   logging: true,
-  entities: [FileUpload, AdminUser], // Добавляем необходимые сущности
-  migrations: ['src/database/migrations/*-AddScanStatusToFileUploads.ts'], // Указываем только нужную миграцию
+  entities: [User, Driver, Order, ChatMessage, Transaction],
+  migrations: [],
   migrationsTableName: 'typeorm_migrations'
 });

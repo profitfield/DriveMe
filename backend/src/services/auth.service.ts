@@ -1,35 +1,30 @@
+// src/services/auth.service.ts
+
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { UsersService } from './users.service';
 import { JwtService } from './jwt.service';
 import { TelegramLoginDto, TelegramAuthResponseDto } from '../dto/auth.dto';
-import { BruteforceProtectionService } from './bruteforce-protection.service';
-import { SecurityLogger } from './logger.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private configService: ConfigService,
     private usersService: UsersService,
-    private jwtService: JwtService,
-    private bruteforceProtection: BruteforceProtectionService,
-    private securityLogger: SecurityLogger
+    private jwtService: JwtService
   ) {}
 
   async validateTelegramLogin(loginData: TelegramLoginDto): Promise<TelegramAuthResponseDto> {
     try {
-      // В режиме разработки пропускаем проверку хэша
       if (process.env.NODE_ENV !== 'development') {
         // Проверяем валидность данных от Telegram
         if (!this.verifyTelegramHash(loginData)) {
-          await this.bruteforceProtection.recordAttempt(loginData.id.toString(), 'auth', false);
           throw new UnauthorizedException('Invalid telegram authentication data');
         }
 
         // Проверяем время авторизации
         if (loginData.auth_date < (Date.now() / 1000 - 86400)) {
-          await this.bruteforceProtection.recordAttempt(loginData.id.toString(), 'auth', false);
           throw new UnauthorizedException('Authentication data expired');
         }
       }
@@ -47,19 +42,11 @@ export class AuthService {
       }
 
       // Генерируем токены
-      const { accessToken, refreshToken } = await this.jwtService.generateTokens(user.id, user.telegramId, 'client');
-
-      // Записываем успешную попытку
-      await this.bruteforceProtection.recordAttempt(loginData.id.toString(), 'auth', true);
-
-      // Логируем успешную авторизацию
-      this.securityLogger.logSecurityEvent({
-        type: 'auth',
-        severity: 'low',
-        message: 'Successful Telegram authentication',
-        userId: user.id,
-        metadata: { telegramId: loginData.id }
-      });
+      const { accessToken, refreshToken } = await this.jwtService.generateTokens(
+        user.id, 
+        user.telegramId, 
+        'client'
+      );
 
       return {
         accessToken,
@@ -73,18 +60,9 @@ export class AuthService {
           role: 'client'
         }
       };
+
     } catch (error) {
-      // Логируем неудачную попытку
-      this.securityLogger.logSecurityEvent({
-        type: 'auth',
-        severity: 'medium',
-        message: 'Failed Telegram authentication',
-        metadata: { 
-          telegramId: loginData.id,
-          error: error.message 
-        }
-      });
-      throw error;
+      throw new UnauthorizedException(error.message);
     }
   }
 
@@ -94,6 +72,7 @@ export class AuthService {
       throw new Error('TELEGRAM_BOT_TOKEN is not defined');
     }
 
+    // Создаем проверочный хеш
     const secret = createHash('sha256')
       .update(botToken)
       .digest();

@@ -1,30 +1,37 @@
+// src/services/jwt.service.ts
+
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService as NestJwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { JwtPayload } from '../config/jwt.config';
-import { RedisService } from './redis.service';
+
+interface JwtPayload {
+  sub: string;
+  telegramId: string;
+  role: string;
+  type: 'access' | 'refresh';
+}
 
 @Injectable()
 export class JwtService {
+  private refreshTokens: Map<string, string> = new Map();
+
   constructor(
     private readonly jwtService: NestJwtService,
-    private readonly configService: ConfigService,
-    private readonly redisService: RedisService
+    private readonly configService: ConfigService
   ) {}
 
-  async generateTokens(userId: string, telegramId: string, role: string) {
+  async generateTokens(
+    userId: string, 
+    telegramId: string, 
+    role: string
+  ) {
     const [accessToken, refreshToken] = await Promise.all([
       this.generateAccessToken(userId, telegramId, role),
       this.generateRefreshToken(userId, telegramId, role)
     ]);
 
-    // Сохраняем refresh token в Redis
-    const refreshTokenKey = `refresh_token:${userId}`;
-    await this.redisService.set(
-      refreshTokenKey,
-      refreshToken,
-      60 * 60 * 24 * 7 // 7 дней
-    );
+    // Сохраняем refresh token
+    this.refreshTokens.set(userId, refreshToken);
 
     return {
       accessToken,
@@ -32,7 +39,11 @@ export class JwtService {
     };
   }
 
-  private async generateAccessToken(userId: string, telegramId: string, role: string): Promise<string> {
+  private async generateAccessToken(
+    userId: string,
+    telegramId: string,
+    role: string
+  ): Promise<string> {
     const payload: JwtPayload = {
       sub: userId,
       telegramId,
@@ -46,7 +57,11 @@ export class JwtService {
     });
   }
 
-  private async generateRefreshToken(userId: string, telegramId: string, role: string): Promise<string> {
+  private async generateRefreshToken(
+    userId: string,
+    telegramId: string,
+    role: string
+  ): Promise<string> {
     const payload: JwtPayload = {
       sub: userId,
       telegramId,
@@ -75,9 +90,9 @@ export class JwtService {
         throw new UnauthorizedException('Invalid token type');
       }
 
-      // Для refresh токена проверяем наличие в Redis
+      // Для refresh токена проверяем наличие в хранилище
       if (type === 'refresh') {
-        const storedToken = await this.redisService.get(`refresh_token:${payload.sub}`);
+        const storedToken = this.refreshTokens.get(payload.sub);
         if (!storedToken || storedToken !== token) {
           throw new UnauthorizedException('Refresh token is invalid or expired');
         }
@@ -101,13 +116,12 @@ export class JwtService {
     );
 
     // Инвалидируем старый refresh token
-    await this.redisService.del(`refresh_token:${payload.sub}`);
+    this.refreshTokens.delete(payload.sub);
 
     return newTokens;
   }
 
   async invalidateTokens(userId: string) {
-    // Удаляем refresh token из Redis
-    await this.redisService.del(`refresh_token:${userId}`);
+    this.refreshTokens.delete(userId);
   }
 }

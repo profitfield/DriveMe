@@ -1,22 +1,11 @@
-import { JwtModuleOptions } from '@nestjs/jwt';
+// src/config/jwt.config.ts
 
-export const jwtConfig: JwtModuleOptions = {
-  secret: process.env.JWT_SECRET,
+export const jwtConfig = {
+  secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
   signOptions: {
-    expiresIn: '1h', // access token живет 1 час
+    expiresIn: process.env.JWT_EXPIRES_IN || '24h'
   },
+  refreshToken: {
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+  }
 };
-
-export const jwtRefreshConfig: JwtModuleOptions = {
-  secret: process.env.JWT_REFRESH_SECRET,
-  signOptions: {
-    expiresIn: '7d', // refresh token живет 7 дней
-  },
-};
-
-export interface JwtPayload {
-  sub: string;
-  telegramId: string;
-  role: string;
-  type: 'access' | 'refresh';
-}

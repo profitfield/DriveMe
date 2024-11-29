@@ -1,5 +1,18 @@
+// src/entities/transaction.entity.ts
+
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { TransactionType, TransactionStatus } from '../services/secure-transaction.service';
+
+export enum TransactionType {
+  PAYMENT = 'payment',
+  COMMISSION = 'commission',
+  BONUS = 'bonus'
+}
+
+export enum TransactionStatus {
+  PENDING = 'pending',
+  COMPLETED = 'completed',
+  FAILED = 'failed'
+}
 
 @Entity('transactions')
 export class Transaction {
@@ -19,27 +32,17 @@ export class Transaction {
   })
   status: TransactionStatus;
 
-  @Column({ name: 'user_id' })
-  userId: string;
+  @Column({ name: 'order_id' })
+  orderId: string;
 
-  @Column({
-    name: 'user_type',
-    type: 'enum',
-    enum: ['client', 'driver', 'admin']
-  })
-  userType: 'client' | 'driver' | 'admin';
+  @Column({ name: 'driver_id' })
+  driverId: string;
 
-  @Column({ name: 'session_id', nullable: true })
-  sessionId?: string;
+  @Column('decimal', { precision: 10, scale: 2 })
+  amount: number;
 
-  @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, any>;
-
-  @Column({ type: 'jsonb', name: 'result_data', nullable: true })
-  resultData?: Record<string, any>;
-
-  @Column({ name: 'error_message', nullable: true })
-  errorMessage?: string;
+  @Column('decimal', { precision: 10, scale: 2 })
+  commission: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
