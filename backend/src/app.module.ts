@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PassportModule } from '@nestjs/passport';
@@ -7,6 +7,8 @@ import { APP_GUARD } from '@nestjs/core';
 
 // Конфигурация
 import { databaseConfig } from './config/database.config';
+import { securityConfig } from './config/security.config';
+import { websocketConfig } from './config/websocket.config';
 
 // Сущности
 import { User } from './entities/user.entity';
@@ -30,6 +32,8 @@ import { OrdersModule } from './modules/orders.module';
 import { AdminModule } from './modules/admin.module';
 import { RedisModule } from './modules/redis.module';
 import { SecurityModule } from './modules/security.module';
+import { AuthModule } from './modules/auth.module';
+import { WebSocketModule } from './modules/websocket.module';
 
 // Guards
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -37,11 +41,15 @@ import { AdminRolesGuard } from './guards/admin-roles.guard';
 import { SecurityMonitoringGuard } from './guards/security-monitoring.guard';
 import { BruteforceGuard } from './guards/bruteforce.guard';
 import { CsrfGuard } from './guards/csrf.guard';
+import { RateLimiterGuard } from './guards/rate-limiter.guard';
+import { AccessControlGuard } from './guards/access-control.guard';
 
-// Стратегии
-import { JwtStrategy } from './strategies/jwt.strategy';
+// Middleware
+import { LoggingMiddleware } from './middleware/logging.middleware';
+import { SecurityMiddleware } from './middleware/security.middleware';
+import { CsrfMiddleware } from './middleware/csrf.middleware';
 
-// Сервисы
+// Services
 import { SecurityLogger } from './services/logger.service';
 import { EncryptionService } from './services/encryption.service';
 import { SecureStorageService } from './services/secure-storage.service';
@@ -57,33 +65,39 @@ import { SecureTransactionService } from './services/secure-transaction.service'
 import { SuspiciousActivityService } from './services/suspicious-activity.service';
 import { ContentValidationService } from './services/content-validation.service';
 import { APISecurityService } from './services/api-security.service';
+import { WebSocketSecurityService } from './services/websocket-security.service';
+import { AccessControlService } from './services/access-control.service';
+import { AntivirusService } from './services/antivirus.service';
 
 @Module({
   imports: [
     // Конфигурация
     ConfigModule.forRoot({
       isGlobal: true,
+      load: [
+        () => ({ security: securityConfig }),
+        () => ({ websocket: websocketConfig })
+      ],
       envFilePath: ['.env', `.env.${process.env.NODE_ENV}`],
-      expandVariables: true,
     }),
 
     // База данных
     TypeOrmModule.forRoot(databaseConfig),
     TypeOrmModule.forFeature([
-      ChatMessage, 
-      AuditLog, 
+      User,
+      Driver,
+      Order,
+      AdminUser,
+      AdminLog,
+      AdminSettings,
+      ChatMessage,
+      AuditLog,
       Notification,
       FileUpload,
       Session,
       Transaction,
       SuspiciousActivity
     ]),
-
-    // Redis
-    RedisModule,
-
-    // Безопасность
-    SecurityModule,
 
     // Аутентификация
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -98,17 +112,18 @@ import { APISecurityService } from './services/api-security.service';
       inject: [ConfigService],
     }),
 
-    // Функциональные модули
+    // Основные модули
+    RedisModule,
+    SecurityModule,
+    AuthModule,
     UsersModule,
     DriversModule,
     OrdersModule,
-    AdminModule
+    AdminModule,
+    WebSocketModule,
   ],
   providers: [
-    // JWT стратегия
-    JwtStrategy,
-
-    // Сервисы безопасности
+    // Security Services
     SecurityLogger,
     EncryptionService,
     SecureStorageService,
@@ -123,32 +138,43 @@ import { APISecurityService } from './services/api-security.service';
     SecureTransactionService,
     SuspiciousActivityService,
     ContentValidationService,
+    APISecurityService,
+    WebSocketSecurityService,
+    AccessControlService,
+    AntivirusService,
 
-    // Глобальные guards
+    // Global Guards
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard
+      useClass: JwtAuthGuard,
     },
     {
       provide: APP_GUARD,
-      useClass: AdminRolesGuard
+      useClass: AdminRolesGuard,
     },
     {
       provide: APP_GUARD,
-      useClass: SecurityMonitoringGuard
+      useClass: SecurityMonitoringGuard,
     },
     {
       provide: APP_GUARD,
-      useClass: BruteforceGuard
+      useClass: BruteforceGuard,
     },
     {
       provide: APP_GUARD,
-      useClass: CsrfGuard
+      useClass: CsrfGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RateLimiterGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AccessControlGuard,
     }
   ],
   exports: [
-    PassportModule,
-    JwtModule,
+    // Export security services for use in other modules
     SecurityLogger,
     EncryptionService,
     SecureStorageService,
@@ -162,7 +188,29 @@ import { APISecurityService } from './services/api-security.service';
     SessionManagementService,
     SecureTransactionService,
     SuspiciousActivityService,
-    ContentValidationService
+    ContentValidationService,
+    APISecurityService,
+    WebSocketSecurityService,
+    AccessControlService,
+    AntivirusService,
   ]
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggingMiddleware)
+      .forRoutes('*');
+
+    consumer
+      .apply(SecurityMiddleware)
+      .forRoutes('*');
+    
+    consumer
+      .apply(CsrfMiddleware)
+      .forRoutes('*');
+
+    consumer
+      .apply(APISecurityService)
+      .forRoutes('*');
+  }
+}

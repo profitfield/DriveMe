@@ -7,16 +7,31 @@ import { ValidationFilter } from './filters/validation.filter';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 import * as compression from 'compression';
-import { securityConfig } from './config/security.config';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
+  const configService = app.get(ConfigService);
+  const security = configService.get('security');
+
   // Безопасность
   app.use(helmet({
-    contentSecurityPolicy: securityConfig.contentSecurityPolicy,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", 'cdnjs.cloudflare.com'],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", 'https:', 'data:'],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      }
+    },
     crossOriginEmbedderPolicy: true,
     crossOriginOpenerPolicy: true,
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -35,7 +50,19 @@ async function bootstrap() {
   }));
 
   // CORS
-  app.enableCors(securityConfig.cors);
+  app.enableCors({
+    origin: configService.get<string>('CORS_ORIGINS', 'http://localhost:3000').split(','),
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+    ],
+    credentials: true,
+    maxAge: 3600,
+  });
 
   // Сжатие
   app.use(compression());
@@ -77,8 +104,8 @@ async function bootstrap() {
   }
 
   // Запуск сервера
-  const port = process.env.PORT || 3000;
-  const host = process.env.HOST || 'localhost';
+  const port = configService.get<number>('PORT', 3000);
+  const host = configService.get<string>('HOST', 'localhost');
   
   await app.listen(port, host);
   

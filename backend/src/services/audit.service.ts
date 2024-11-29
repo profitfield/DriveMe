@@ -43,7 +43,13 @@ export enum AuditActionType {
   // Безопасность
   SECURITY_VIOLATION = 'security_violation',
   ACCESS_DENIED = 'access_denied',
-  DATA_EXPORT = 'data_export'
+  DATA_EXPORT = 'data_export',
+
+  // WebSocket события
+  WS_CONNECTION_OPENED = 'ws_connection_opened',
+  WS_CONNECTION_CLOSED = 'ws_connection_closed',
+  WS_MESSAGE_SENT = 'ws_message_sent',
+  WS_ERROR = 'ws_error'
 }
 
 export enum AuditLogLevel {

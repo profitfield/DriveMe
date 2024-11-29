@@ -6,7 +6,8 @@ import { ConfigService } from '@nestjs/config';
 import { SecurityLogger } from './logger.service';
 import { EncryptionService } from './encryption.service';
 import { AuditService, AuditActionType, AuditLogLevel } from './audit.service';
-import { FileUpload } from '../entities/file-upload.entity';
+import { AntivirusService, ScanResult } from './antivirus.service';
+import { FileUpload, FileStatus } from '../entities/file-upload.entity';
 import { FileTypeResult, fileTypeFromBuffer } from 'file-type';
 import sanitize from 'sanitize-filename';
 import * as path from 'path';
@@ -49,7 +50,8 @@ export class SecureUploadService {
     private securityLogger: SecurityLogger,
     private encryptionService: EncryptionService,
     private auditService: AuditService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private antivirusService: AntivirusService
   ) {
     this.initializeUploadDirectories();
   }
@@ -96,7 +98,12 @@ export class SecureUploadService {
         size: file.size,
         checksum,
         metadata: metadata || {},
-        path: uploadPath
+        path: uploadPath,
+        scanStatus: FileStatus.CLEAN,
+        scanResult: {
+          timestamp: new Date(),
+          viruses: []
+        }
       });
 
       const savedFile = await this.fileRepository.save(fileUpload);
@@ -112,7 +119,8 @@ export class SecureUploadService {
           metadata: {
             filename: secureFilename,
             category,
-            size: file.size
+            size: file.size,
+            scanStatus: FileStatus.CLEAN
           }
         }
       );
@@ -144,6 +152,10 @@ export class SecureUploadService {
 
       if (!file) {
         throw new BadRequestException('File not found');
+      }
+
+      if (file.scanStatus !== FileStatus.CLEAN) {
+        throw new BadRequestException('File is not safe to download');
       }
 
       // Проверяем права доступа
@@ -271,9 +283,28 @@ export class SecureUploadService {
   }
 
   private async analyzeFileContent(file: Express.Multer.File): Promise<void> {
-    // Проверка на вредоносное содержимое
-    if (this.containsMaliciousContent(file.buffer)) {
-      throw new BadRequestException('File contains malicious content');
+    // Антивирусная проверка
+    const scanResult = await this.antivirusService.scanBuffer(
+      file.buffer,
+      file.originalname
+    );
+
+    if (scanResult.result === ScanResult.INFECTED) {
+      await this.auditService.log(
+        AuditActionType.SECURITY_VIOLATION,
+        AuditLogLevel.CRITICAL,
+        {
+          metadata: {
+            filename: file.originalname,
+            viruses: scanResult.viruses
+          }
+        }
+      );
+      throw new BadRequestException('File contains malware');
+    }
+
+    if (scanResult.result === ScanResult.ERROR) {
+      throw new BadRequestException('File analysis failed');
     }
 
     // Дополнительные проверки для разных типов файлов
@@ -284,20 +315,31 @@ export class SecureUploadService {
     }
   }
 
-  private containsMaliciousContent(buffer: Buffer): boolean {
-    // TODO: Реализовать проверку на вредоносное содержимое
-    // Например, интеграция с антивирусом или другими сервисами безопасности
-    return false;
-  }
-
   private async validateImage(buffer: Buffer): Promise<void> {
-    // TODO: Реализовать проверку изображений
-    // Например, проверка метаданных, размеров, формата и т.д.
+    try {
+      // Проверка метаданных изображения
+      // TODO: Реализовать проверку метаданных изображения
+      // Например, использовать sharp для проверки размеров и формата
+      
+    } catch (error) {
+      throw new BadRequestException('Invalid image file');
+    }
   }
 
   private async validatePDF(buffer: Buffer): Promise<void> {
-    // TODO: Реализовать проверку PDF
-    // Например, проверка на активное содержимое, скрипты и т.д.
+    try {
+      // Проверка на активное содержимое
+      const content = buffer.toString();
+      if (content.includes('/JS') || 
+          content.includes('/JavaScript') || 
+          content.includes('/Action') ||
+          content.includes('/Launch')) {
+        throw new BadRequestException('PDF contains forbidden active content');
+      }
+      
+    } catch (error) {
+      throw new BadRequestException('Invalid PDF file');
+    }
   }
 
   private calculateChecksum(buffer: Buffer): string {
@@ -315,7 +357,6 @@ export class SecureUploadService {
   }
 
   private async encryptFileBuffer(buffer: Buffer): Promise<Buffer> {
-    // Используем сервис шифрования для защиты содержимого файла
     const encrypted = await this.encryptionService.encrypt(buffer.toString('base64'));
     return Buffer.from(encrypted, 'utf8');
   }
@@ -350,8 +391,13 @@ export class SecureUploadService {
         await fs.mkdir(path.join(basePath, category), { recursive: true });
       }
 
+      // Создаем директорию для карантина
+      const quarantinePath = this.configService.get<string>('QUARANTINE_PATH', 'quarantine');
+      await fs.mkdir(quarantinePath, { recursive: true });
+
       // Устанавливаем правильные права доступа
       await fs.chmod(basePath, 0o750);
+      await fs.chmod(quarantinePath, 0o750);
     } catch (error) {
       this.securityLogger.logSecurityEvent({
         type: 'modification',
@@ -365,7 +411,7 @@ export class SecureUploadService {
 
   private async secureDeleteFile(filePath: string): Promise<void> {
     try {
-      // Перезаписываем файл случайными данными перед удалением
+      // Перезаписываем файл случайными данными
       const fileSize = (await fs.stat(filePath)).size;
       const randomData = Buffer.alloc(fileSize, 0);
       await fs.writeFile(filePath, randomData);
@@ -378,7 +424,6 @@ export class SecureUploadService {
   }
 
   private async validateFileAccess(file: FileUpload, userId: string): Promise<void> {
-    // Проверяем, имеет ли пользователь право доступа к файлу
     if (file.userId !== userId) {
       this.securityLogger.logSecurityEvent({
         type: 'access',

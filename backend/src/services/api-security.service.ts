@@ -1,6 +1,7 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { IncomingHttpHeaders } from 'http';
 import { SecurityLogger } from './logger.service';
 import { AuditService, AuditActionType, AuditLogLevel } from './audit.service';
 import { RedisService } from './redis.service';
@@ -87,7 +88,7 @@ export class APISecurityService implements NestMiddleware {
       await this.validateAndSanitizeRequest(req);
 
       // Логирование успешной проверки
-      this.auditService.log(
+      await this.auditService.log(
         AuditActionType.DATA_EXPORT,
         AuditLogLevel.INFO,
         {
@@ -121,7 +122,7 @@ export class APISecurityService implements NestMiddleware {
     }
   }
 
-  private hasMaliciousHeaders(headers: Record<string, string>): boolean {
+  private hasMaliciousHeaders(headers: IncomingHttpHeaders): boolean {
     const maliciousPatterns = [
       /[<>]|javascript:|data:|vbscript:/i,
       /(\%27)|(\')|(\-\-)|(\%23)|(#)/i,
@@ -129,9 +130,21 @@ export class APISecurityService implements NestMiddleware {
     ];
 
     return Object.entries(headers).some(([key, value]) => {
-      return maliciousPatterns.some(pattern => 
-        pattern.test(key) || (value && pattern.test(value))
-      );
+      // Проверяем ключ всегда как строку
+      if (maliciousPatterns.some(pattern => pattern.test(key))) {
+        return true;
+      }
+
+      // Для значения проверяем как строку или массив строк
+      if (value) {
+        if (Array.isArray(value)) {
+          return value.some(v => maliciousPatterns.some(pattern => pattern.test(v)));
+        } else {
+          return maliciousPatterns.some(pattern => pattern.test(value));
+        }
+      }
+
+      return false;
     });
   }
 

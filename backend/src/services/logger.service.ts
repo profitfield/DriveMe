@@ -52,7 +52,7 @@ export class SecurityLogger implements LoggerService {
 
   // Логирование событий безопасности
   logSecurityEvent(event: {
-    type: 'auth' | 'access' | 'modification' | 'attack';
+    type: 'auth' | 'access' | 'modification' | 'attack' | 'error';
     severity: 'low' | 'medium' | 'high' | 'critical';
     message: string;
     metadata?: any;
