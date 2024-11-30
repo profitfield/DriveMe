@@ -13,7 +13,7 @@ interface JwtPayload {
 
 @Injectable()
 export class JwtService {
-  private refreshTokens: Map<string, string> = new Map();
+  private tokenStorage: Map<string, string> = new Map();
 
   constructor(
     private readonly jwtService: NestJwtService,
@@ -31,7 +31,7 @@ export class JwtService {
     ]);
 
     // Сохраняем refresh token
-    this.refreshTokens.set(userId, refreshToken);
+    this.tokenStorage.set(userId, refreshToken);
 
     return {
       accessToken,
@@ -92,7 +92,7 @@ export class JwtService {
 
       // Для refresh токена проверяем наличие в хранилище
       if (type === 'refresh') {
-        const storedToken = this.refreshTokens.get(payload.sub);
+        const storedToken = this.tokenStorage.get(payload.sub);
         if (!storedToken || storedToken !== token) {
           throw new UnauthorizedException('Refresh token is invalid or expired');
         }
@@ -104,7 +104,7 @@ export class JwtService {
     }
   }
 
-  async refreshTokens(refreshToken: string) {
+  async updateTokens(refreshToken: string) {
     // Проверяем refresh token
     const payload = await this.verifyToken(refreshToken, 'refresh');
     
@@ -116,12 +116,12 @@ export class JwtService {
     );
 
     // Инвалидируем старый refresh token
-    this.refreshTokens.delete(payload.sub);
+    this.tokenStorage.delete(payload.sub);
 
     return newTokens;
   }
 
-  async invalidateTokens(userId: string) {
-    this.refreshTokens.delete(userId);
+  async invalidateUserTokens(userId: string) {
+    this.tokenStorage.delete(userId);
   }
 }

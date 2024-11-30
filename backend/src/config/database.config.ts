@@ -1,13 +1,13 @@
 // src/config/database.config.ts
 
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
+
+// Сущности
 import { User } from '../entities/user.entity';
 import { Driver } from '../entities/driver.entity';
 import { Order } from '../entities/order.entity';
 import { ChatMessage } from '../entities/chat-message.entity';
 import { Transaction } from '../entities/transaction.entity';
-
-const entities = [User, Driver, Order, ChatMessage, Transaction];
 
 export const databaseConfig: TypeOrmModuleOptions = {
   type: 'postgres',
@@ -16,11 +16,11 @@ export const databaseConfig: TypeOrmModuleOptions = {
   username: process.env.DB_USER || 'driveme_user',
   password: process.env.DB_PASSWORD || 'driveme_pass',
   database: process.env.DB_NAME || 'driveme',
-  entities,
+  entities: [User, Driver, Order, ChatMessage, Transaction],
   synchronize: process.env.NODE_ENV !== 'production',
   logging: process.env.NODE_ENV === 'development',
   
-  // Дополнительные настройки для продакшена
+  // Настройки для продакшена
   ...(process.env.NODE_ENV === 'production' && {
     ssl: true,
     extra: {
