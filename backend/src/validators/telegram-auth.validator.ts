@@ -1,3 +1,5 @@
+// src/validators/telegram-auth.validator.ts
+
 import { Injectable } from '@nestjs/common';
 import { createHash, createHmac } from 'crypto';
 import { ConfigService } from '@nestjs/config';
@@ -13,24 +15,20 @@ export class TelegramAuthValidator {
       throw new Error('TELEGRAM_BOT_TOKEN not configured');
     }
 
-    // Проверка времени авторизации (не старше 24 часов)
     if (Math.abs(Date.now() / 1000 - data.auth_date) > 86400) {
       return false;
     }
 
-    // Создание строки для проверки
     const checkString = Object.entries(data)
       .filter(([key]) => key !== 'hash')
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
       .join('\n');
 
-    // Создание секретного ключа из токена бота
     const secretKey = createHash('sha256')
       .update(botToken)
       .digest();
 
-    // Создание хэша для проверки
     const hash = createHmac('sha256', secretKey)
       .update(checkString)
       .digest('hex');

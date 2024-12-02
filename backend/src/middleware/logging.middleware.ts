@@ -1,6 +1,7 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+// src/middleware/logging.middleware.ts
+
+import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class LoggingMiddleware implements NestMiddleware {
@@ -9,17 +10,23 @@ export class LoggingMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     const { method, originalUrl, ip } = req;
     const userAgent = req.get('user-agent') || '';
-
-    const startTime = Date.now();
+    const requestStart = Date.now();
 
     res.on('finish', () => {
       const { statusCode } = res;
       const contentLength = res.get('content-length');
-      const duration = Date.now() - startTime;
+      const requestDuration = Date.now() - requestStart;
 
       this.logger.log(
-        `${method} ${originalUrl} ${statusCode} ${contentLength}b ${duration}ms - ${userAgent} ${ip}`
+        `${method} ${originalUrl} ${statusCode} ${contentLength}b ${requestDuration}ms - ${userAgent} ${ip}`
       );
+
+      // Дополнительное логирование для ошибок
+      if (statusCode >= 400) {
+        this.logger.warn(
+          `Request failed: ${method} ${originalUrl} ${statusCode} - ${ip}`
+        );
+      }
     });
 
     next();

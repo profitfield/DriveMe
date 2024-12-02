@@ -18,18 +18,15 @@ export class AuthService {
   async validateTelegramLogin(loginData: TelegramLoginDto): Promise<TelegramAuthResponseDto> {
     try {
       if (process.env.NODE_ENV !== 'development') {
-        // Проверяем валидность данных от Telegram
         if (!this.verifyTelegramHash(loginData)) {
           throw new UnauthorizedException('Invalid telegram authentication data');
         }
 
-        // Проверяем время авторизации
         if (loginData.auth_date < (Date.now() / 1000 - 86400)) {
           throw new UnauthorizedException('Authentication data expired');
         }
       }
 
-      // Ищем или создаем пользователя
       let user = await this.usersService.findByTelegramId(loginData.id.toString());
       
       if (!user) {
@@ -41,10 +38,9 @@ export class AuthService {
         });
       }
 
-      // Генерируем токены
       const { accessToken, refreshToken } = await this.jwtService.generateTokens(
-        user.id, 
-        user.telegramId, 
+        user.id,
+        user.telegramId,
         'client'
       );
 
@@ -60,7 +56,6 @@ export class AuthService {
           role: 'client'
         }
       };
-
     } catch (error) {
       throw new UnauthorizedException(error.message);
     }
@@ -72,7 +67,6 @@ export class AuthService {
       throw new Error('TELEGRAM_BOT_TOKEN is not defined');
     }
 
-    // Создаем проверочный хеш
     const secret = createHash('sha256')
       .update(botToken)
       .digest();

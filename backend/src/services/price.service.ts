@@ -1,48 +1,77 @@
+// src/services/price.service.ts
+
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CarClass } from '../entities/driver.entity';
 import { OrderType } from '../entities/order.entity';
-import { PriceCalculation, CarClassPrices } from '../interfaces/price.interface';
+
+interface CarClassPrices {
+  firstHour: number;
+  minuteRate: number;
+  airports: {
+    SVO: number;
+    DME: number;
+    VKO: number;
+  };
+}
+
+interface PriceCalculation {
+  basePrice: number;
+  discount: number;
+  finalPrice: number;
+}
 
 @Injectable()
 export class PriceService {
-  private readonly prices: Record<CarClass, CarClassPrices> = {
-    [CarClass.PREMIUM]: {
-      firstHour: 4200,
-      minuteRate: 70,
-      airports: {
-        SVO: 6000,
-        DME: 7000,
-        VKO: 6000
-      }
-    },
-    [CarClass.PREMIUM_LARGE]: {
-      firstHour: 4200,
-      minuteRate: 70,
-      airports: {
-        SVO: 6000,
-        DME: 7000,
-        VKO: 6000
-      }
-    },
-    [CarClass.ELITE]: {
-      firstHour: 4800,
-      minuteRate: 80,
-      airports: {
-        SVO: 7000,
-        DME: 8000,
-        VKO: 7000
-      }
-    }
-  };
+  private readonly carClassPrices: Record<CarClass, CarClassPrices>;
+  private readonly commissionRate: number;
+  private readonly hourlyDiscounts: { hours: number; discount: number }[];
 
-  private readonly hourlyDiscounts = [
-    { hours: 2, discount: 0.05 },  // 5%
-    { hours: 4, discount: 0.10 },  // 10%
-    { hours: 6, discount: 0.15 },  // 15%
-    { hours: 8, discount: 0.20 },  // 20%
-    { hours: 10, discount: 0.25 }, // 25%
-    { hours: 12, discount: 0.30 }  // 30%
-  ];
+  constructor(private configService: ConfigService) {
+    // Инициализация цен для разных классов автомобилей
+    this.carClassPrices = {
+      [CarClass.PREMIUM]: {
+        firstHour: this.configService.get<number>('PREMIUM_FIRST_HOUR', 4200),
+        minuteRate: this.configService.get<number>('PREMIUM_MINUTE_RATE', 70),
+        airports: {
+          SVO: this.configService.get<number>('PREMIUM_AIRPORT_SVO', 6000),
+          DME: this.configService.get<number>('PREMIUM_AIRPORT_DME', 7000),
+          VKO: this.configService.get<number>('PREMIUM_AIRPORT_VKO', 6000)
+        }
+      },
+      [CarClass.PREMIUM_LARGE]: {
+        firstHour: this.configService.get<number>('PREMIUM_FIRST_HOUR', 4200),
+        minuteRate: this.configService.get<number>('PREMIUM_MINUTE_RATE', 70),
+        airports: {
+          SVO: this.configService.get<number>('PREMIUM_AIRPORT_SVO', 6000),
+          DME: this.configService.get<number>('PREMIUM_AIRPORT_DME', 7000),
+          VKO: this.configService.get<number>('PREMIUM_AIRPORT_VKO', 6000)
+        }
+      },
+      [CarClass.ELITE]: {
+        firstHour: this.configService.get<number>('ELITE_FIRST_HOUR', 4800),
+        minuteRate: this.configService.get<number>('ELITE_MINUTE_RATE', 80),
+        airports: {
+          SVO: this.configService.get<number>('ELITE_AIRPORT_SVO', 7000),
+          DME: this.configService.get<number>('ELITE_AIRPORT_DME', 8000),
+          VKO: this.configService.get<number>('ELITE_AIRPORT_VKO', 7000)
+        }
+      }
+    };
+
+    // Инициализация скидок для почасовой аренды
+    this.hourlyDiscounts = [
+      { hours: 12, discount: this.configService.get<number>('DISCOUNT_12_HOURS', 30) / 100 },
+      { hours: 10, discount: this.configService.get<number>('DISCOUNT_10_HOURS', 25) / 100 },
+      { hours: 8, discount: this.configService.get<number>('DISCOUNT_8_HOURS', 20) / 100 },
+      { hours: 6, discount: this.configService.get<number>('DISCOUNT_6_HOURS', 15) / 100 },
+      { hours: 4, discount: this.configService.get<number>('DISCOUNT_4_HOURS', 10) / 100 },
+      { hours: 2, discount: this.configService.get<number>('DISCOUNT_2_HOURS', 5) / 100 }
+    ];
+
+    // Инициализация комиссии сервиса
+    this.commissionRate = this.configService.get<number>('COMMISSION_RATE', 0.25);
+  }
 
   calculatePrice(
     type: OrderType,
@@ -50,7 +79,7 @@ export class PriceService {
     durationHours?: number,
     airport?: 'SVO' | 'DME' | 'VKO'
   ): PriceCalculation {
-    const prices = this.prices[carClass];
+    const prices = this.carClassPrices[carClass];
 
     switch (type) {
       case OrderType.AIRPORT:
@@ -64,33 +93,35 @@ export class PriceService {
           finalPrice: airportPrice
         };
 
-      case OrderType.PRE_ORDER:
-        const basePrice = prices.firstHour;
-        const extraMinutes = durationHours && durationHours > 1 
-          ? (durationHours - 1) * 60 
-          : 0;
-        const extraPrice = extraMinutes * prices.minuteRate;
-        const totalPrice = basePrice + extraPrice;
-
-        return {
-          basePrice: totalPrice,
-          discount: 0,
-          finalPrice: totalPrice
-        };
-
       case OrderType.HOURLY:
         if (!durationHours) {
           throw new Error('Duration is required for hourly orders');
         }
-        const hourlyBasePrice = prices.firstHour * durationHours;
-        const discountPercent = this.getHourlyDiscount(durationHours);
-        const discountAmount = hourlyBasePrice * discountPercent;
-        const hourlyFinalPrice = hourlyBasePrice - discountAmount;
+        
+        // Расчет базовой цены
+        const basePrice = prices.firstHour * durationHours;
+        
+        // Применение скидки
+        const discount = this.calculateHourlyDiscount(durationHours, basePrice);
+        const finalPrice = basePrice - discount;
 
         return {
-          basePrice: hourlyBasePrice,
-          discount: discountAmount,
-          finalPrice: hourlyFinalPrice
+          basePrice,
+          discount,
+          finalPrice
+        };
+
+      case OrderType.PRE_ORDER:
+        const preOrderPrice = prices.firstHour;
+        const extraMinutes = durationHours && durationHours > 1 
+          ? (durationHours - 1) * 60 
+          : 0;
+        const extraPrice = extraMinutes * prices.minuteRate / 60;
+
+        return {
+          basePrice: preOrderPrice + extraPrice,
+          discount: 0,
+          finalPrice: preOrderPrice + extraPrice
         };
 
       default:
@@ -99,14 +130,44 @@ export class PriceService {
   }
 
   calculateCommission(price: number): number {
-    const commissionRate = 0.25; // 25%
-    return Math.round(price * commissionRate);
+    return Math.round(price * this.commissionRate);
   }
 
-  private getHourlyDiscount(hours: number): number {
-    const discount = this.hourlyDiscounts
-      .reverse()
-      .find(d => hours >= d.hours);
-    return discount ? discount.discount : 0;
+  private calculateHourlyDiscount(hours: number, basePrice: number): number {
+    const applicableDiscount = this.hourlyDiscounts
+      .find(discount => hours >= discount.hours);
+
+    if (!applicableDiscount) {
+      return 0;
+    }
+
+    return basePrice * applicableDiscount.discount;
+  }
+
+  getPriceEstimate(
+    type: OrderType,
+    carClass: CarClass,
+    durationHours?: number,
+    airport?: 'SVO' | 'DME' | 'VKO'
+  ): {
+    price: number;
+    commission: number;
+    total: number;
+  } {
+    const calculation = this.calculatePrice(type, carClass, durationHours, airport);
+    const commission = this.calculateCommission(calculation.finalPrice);
+
+    return {
+      price: calculation.finalPrice,
+      commission,
+      total: calculation.finalPrice + commission
+    };
+  }
+
+  getHourlyDiscounts(): { hours: number; discount: number }[] {
+    return this.hourlyDiscounts.map(discount => ({
+      hours: discount.hours,
+      discount: discount.discount * 100
+    }));
   }
 }

@@ -1,65 +1,65 @@
-import { Injectable, forwardRef, Inject, Logger } from '@nestjs/common';
+// src/services/driver-assignment.service.ts
+
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import { Driver, DriverStatus, CarClass } from '../entities/driver.entity';
 import { Order, OrderStatus } from '../entities/order.entity';
-import { DriversService } from './drivers.service';
-import { OrdersService } from './orders.service';
-
-interface DriverScore {
-  driver: Driver;
-  score: number;
-}
 
 @Injectable()
 export class DriverAssignmentService {
   private readonly logger = new Logger(DriverAssignmentService.name);
 
   constructor(
-    private readonly driversService: DriversService,
-    @Inject(forwardRef(() => OrdersService))
-    private readonly ordersService: OrdersService,
     @InjectRepository(Driver)
     private readonly driverRepository: Repository<Driver>,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>
   ) {}
 
-  async assignDriverToOrder(orderId: string): Promise<Order | null> {
-    const order = await this.ordersService.findById(orderId);
-    if (!order || order.status !== OrderStatus.CREATED) {
+  async findDriverForOrder(order: Order): Promise<Driver | null> {
+    try {
+      // Находим доступных водителей подходящего класса
+      const availableDrivers = await this.driverRepository.find({
+        where: {
+          carClass: order.carClass,
+          status: DriverStatus.ONLINE
+        },
+        relations: ['user']
+      });
+
+      if (!availableDrivers.length) {
+        this.logger.warn(`No available drivers found for order ${order.id}`);
+        return null;
+      }
+
+      // Фильтруем водителей, у которых уже есть активные заказы
+      const driversWithOrders = await this.findDriversWithActiveOrders();
+      const availableDriverIds = availableDrivers
+        .map(driver => driver.id)
+        .filter(id => !driversWithOrders.includes(id));
+
+      if (!availableDriverIds.length) {
+        this.logger.warn(`All drivers are busy for order ${order.id}`);
+        return null;
+      }
+
+      // Для MVP просто берем первого доступного водителя
+      // В будущем здесь будет более сложная логика распределения
+      const selectedDriver = availableDrivers.find(
+        driver => availableDriverIds.includes(driver.id)
+      );
+
+      return selectedDriver || null;
+    } catch (error) {
+      this.logger.error(`Error finding driver for order ${order.id}: ${error.message}`);
       return null;
     }
-
-    // Проверяем, нет ли у водителей других заказов на это время
-    const availableDrivers = await this.findAvailableDriversForTime(
-      order.carClass,
-      order.pickupDatetime
-    );
-
-    if (!availableDrivers.length) {
-      this.logger.warn(`No available drivers found for order ${orderId}`);
-      return null;
-    }
-
-    const scoredDrivers = this.scoreDrivers(availableDrivers);
-    if (!scoredDrivers.length) {
-      return null;
-    }
-
-    // Выбираем водителя с наивысшим рейтингом
-    const bestDriver = scoredDrivers[0];
-    return this.assignDriver(order, bestDriver.driver);
   }
 
-  private async findAvailableDriversForTime(
-    carClass: CarClass,
-    pickupDatetime: Date
-  ): Promise<Driver[]> {
-    // Находим ID занятых водителей
-    const busyOrders = await this.orderRepository.find({
+  private async findDriversWithActiveOrders(): Promise<string[]> {
+    const activeOrders = await this.orderRepository.find({
       where: {
-        pickupDatetime,
         status: In([
           OrderStatus.DRIVER_ASSIGNED,
           OrderStatus.CONFIRMED,
@@ -71,93 +71,51 @@ export class DriverAssignmentService {
       relations: ['driver']
     });
 
-    const busyDriverIds = busyOrders
+    return activeOrders
       .filter(order => order.driver)
       .map(order => order.driver.id);
-
-    // Ищем свободных водителей
-    return this.driverRepository.find({
-      where: {
-        carClass,
-        status: DriverStatus.ONLINE,
-        id: busyDriverIds.length > 0 ? Not(In(busyDriverIds)) : undefined
-      },
-      relations: ['user']
-    });
   }
 
-  private scoreDrivers(drivers: Driver[]): DriverScore[] {
-    const scoredDrivers = drivers.map(driver => ({
-      driver,
-      score: this.calculateScore(driver)
-    }));
-
-    // Сортируем водителей по рейтингу (от высшего к низшему)
-    return scoredDrivers.sort((a, b) => b.score - a.score);
-  }
-
-  private calculateScore(driver: Driver): number {
-    // Формула расчета рейтинга:
-    // (Рейтинг водителя * 0.7) + (Количество поездок * 0.3)
-    const ratingScore = (driver.rating / 5) * 0.7;
-    const experienceScore = Math.min(driver.totalRides / 1000, 1) * 0.3;
-
-    return ratingScore + experienceScore;
-  }
-
-  private async assignDriver(order: Order, driver: Driver): Promise<Order> {
-    const queryRunner = this.orderRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
+  async assignDriverToOrder(orderId: string, driverId: string): Promise<boolean> {
     try {
-      // Проверяем еще раз доступность водителя
-      const isAvailable = await this.checkDriverAvailability(
-        driver.id,
-        order.pickupDatetime
+      const order = await this.orderRepository.findOne({
+        where: { id: orderId },
+        relations: ['driver']
+      });
+
+      if (!order || order.status !== OrderStatus.CREATED) {
+        this.logger.warn(`Invalid order state for assignment: ${orderId}`);
+        return false;
+      }
+
+      const driver = await this.driverRepository.findOne({
+        where: { id: driverId }
+      });
+
+      if (!driver || driver.status !== DriverStatus.ONLINE) {
+        this.logger.warn(`Invalid driver state for assignment: ${driverId}`);
+        return false;
+      }
+
+      // Обновляем заказ и статус водителя в одной транзакции
+      await this.orderRepository.manager.transaction(async transactionalEntityManager => {
+        // Обновляем заказ
+        order.driver = driver;
+        order.status = OrderStatus.DRIVER_ASSIGNED;
+        await transactionalEntityManager.save(Order, order);
+
+        // Обновляем статус водителя
+        driver.status = DriverStatus.BUSY;
+        await transactionalEntityManager.save(Driver, driver);
+      });
+
+      this.logger.log(`Successfully assigned driver ${driverId} to order ${orderId}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error assigning driver ${driverId} to order ${orderId}: ${error.message}`
       );
-
-      if (!isAvailable) {
-        throw new Error('Driver is no longer available for this time');
-      }
-
-      // Обновляем заказ
-      order.driver = driver;
-      order.status = OrderStatus.DRIVER_ASSIGNED;
-      const savedOrder = await queryRunner.manager.save(Order, order);
-
-      await queryRunner.commitTransaction();
-      
-      this.logger.log(`Driver ${driver.id} assigned to order ${order.id}`);
-      
-      return savedOrder;
-    } catch (err) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(`Failed to assign driver to order: ${err.message}`);
-      throw err;
-    } finally {
-      await queryRunner.release();
+      return false;
     }
-  }
-
-  private async checkDriverAvailability(
-    driverId: string,
-    pickupDatetime: Date
-  ): Promise<boolean> {
-    const existingOrder = await this.orderRepository.findOne({
-      where: {
-        driver: { id: driverId },
-        pickupDatetime,
-        status: In([
-          OrderStatus.DRIVER_ASSIGNED,
-          OrderStatus.CONFIRMED,
-          OrderStatus.EN_ROUTE,
-          OrderStatus.ARRIVED,
-          OrderStatus.STARTED
-        ])
-      }
-    });
-
-    return !existingOrder;
   }
 }

@@ -30,7 +30,6 @@ export class JwtService {
       this.generateRefreshToken(userId, telegramId, role)
     ]);
 
-    // Сохраняем refresh token
     this.tokenStorage.set(userId, refreshToken);
 
     return {
@@ -85,12 +84,10 @@ export class JwtService {
         secret
       });
 
-      // Проверяем тип токена
       if (payload.type !== type) {
         throw new UnauthorizedException('Invalid token type');
       }
 
-      // Для refresh токена проверяем наличие в хранилище
       if (type === 'refresh') {
         const storedToken = this.tokenStorage.get(payload.sub);
         if (!storedToken || storedToken !== token) {
@@ -105,17 +102,14 @@ export class JwtService {
   }
 
   async updateTokens(refreshToken: string) {
-    // Проверяем refresh token
     const payload = await this.verifyToken(refreshToken, 'refresh');
     
-    // Генерируем новую пару токенов
     const newTokens = await this.generateTokens(
       payload.sub,
       payload.telegramId,
       payload.role
     );
 
-    // Инвалидируем старый refresh token
     this.tokenStorage.delete(payload.sub);
 
     return newTokens;

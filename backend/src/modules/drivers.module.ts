@@ -1,19 +1,19 @@
-import { Module, forwardRef } from '@nestjs/common';
+// src/modules/drivers.module.ts
+
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Driver } from '../entities/driver.entity';
-import { Order } from '../entities/order.entity';
 import { DriversService } from '../services/drivers.service';
 import { DriversController } from '../controllers/drivers.controller';
-import { OrdersModule } from './orders.module';
-import { DriverAssignmentService } from '../services/driver-assignment.service';
+import { AssignmentModule } from './assignment/assignment.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Driver, Order]), // Добавили Order в TypeOrmModule
-    forwardRef(() => OrdersModule)
+    TypeOrmModule.forFeature([Driver]),
+    AssignmentModule
   ],
   controllers: [DriversController],
-  providers: [DriversService, DriverAssignmentService],
-  exports: [DriversService, DriverAssignmentService]
+  providers: [DriversService],
+  exports: [DriversService]
 })
 export class DriversModule {}

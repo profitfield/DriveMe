@@ -1,39 +1,68 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+// src/entities/chat-message.entity.ts
+
+import { 
+  Entity, 
+  PrimaryGeneratedColumn, 
+  Column, 
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn
+} from 'typeorm';
+import { User } from './user.entity';
+import { Order } from './order.entity';
+
+export enum MessageType {
+  TEXT = 'text',
+  LOCATION = 'location',
+  SYSTEM = 'system'
+}
+
+export enum MessageStatus {
+  SENT = 'sent',
+  DELIVERED = 'delivered',
+  READ = 'read'
+}
 
 @Entity('chat_messages')
 export class ChatMessage {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
-  @Column({ name: 'order_id' })
-  orderId: string;
+  @ManyToOne(() => Order)
+  @JoinColumn({ name: 'order_id' })
+  order!: Order;
 
-  @Column({ name: 'sender_id' })
-  senderId: string;
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'sender_id' })
+  sender!: User;
 
-  @Column({ name: 'recipient_id' })
-  recipientId: string;
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'recipient_id' })
+  recipient!: User;
 
-  @Column({ type: 'text' })
-  content: string;
-
-  @Column({
-    type: 'enum',
-    enum: ['text', 'location', 'system'],
-    default: 'text'
-  })
-  type: 'text' | 'location' | 'system';
+  @Column('text')
+  content!: string;
 
   @Column({
     type: 'enum',
-    enum: ['sent', 'delivered', 'read'],
-    default: 'sent'
+    enum: MessageType,
+    default: MessageType.TEXT
   })
-  status: 'sent' | 'delivered' | 'read';
+  type!: MessageType;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({
+    type: 'enum',
+    enum: MessageStatus,
+    default: MessageStatus.SENT
+  })
+  status!: MessageStatus;
+
+  @Column({
+    type: 'jsonb',
+    nullable: true
+  })
   metadata?: Record<string, any>;
 
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 }

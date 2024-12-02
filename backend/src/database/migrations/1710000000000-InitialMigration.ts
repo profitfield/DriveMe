@@ -4,6 +4,9 @@ export class InitialMigration1710000000000 implements MigrationInterface {
     name = 'InitialMigration1710000000000';
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        // Создаем расширение для UUID
+        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+
         // Users table
         await queryRunner.query(`
             CREATE TABLE "users" (
@@ -108,23 +111,23 @@ export class InitialMigration1710000000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP TABLE IF EXISTS "transactions"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "transactions" CASCADE`);
         await queryRunner.query(`DROP TYPE IF EXISTS "transaction_status_enum"`);
         await queryRunner.query(`DROP TYPE IF EXISTS "transaction_type_enum"`);
 
-        await queryRunner.query(`DROP TABLE IF EXISTS "chat_messages"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "chat_messages" CASCADE`);
         await queryRunner.query(`DROP TYPE IF EXISTS "message_status_enum"`);
         await queryRunner.query(`DROP TYPE IF EXISTS "message_type_enum"`);
 
-        await queryRunner.query(`DROP TABLE IF EXISTS "orders"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "orders" CASCADE`);
         await queryRunner.query(`DROP TYPE IF EXISTS "payment_type_enum"`);
         await queryRunner.query(`DROP TYPE IF EXISTS "order_status_enum"`);
         await queryRunner.query(`DROP TYPE IF EXISTS "order_type_enum"`);
 
-        await queryRunner.query(`DROP TABLE IF EXISTS "drivers"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "drivers" CASCADE`);
         await queryRunner.query(`DROP TYPE IF EXISTS "car_class_enum"`);
         await queryRunner.query(`DROP TYPE IF EXISTS "driver_status_enum"`);
 
-        await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "users" CASCADE`);
     }
 }

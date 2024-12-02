@@ -1,6 +1,16 @@
 // src/entities/transaction.entity.ts
 
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { 
+  Entity, 
+  PrimaryGeneratedColumn, 
+  Column, 
+  CreateDateColumn, 
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn 
+} from 'typeorm';
+import { Order } from './order.entity';
+import { Driver } from './driver.entity';
 
 export enum TransactionType {
   PAYMENT = 'payment',
@@ -17,36 +27,46 @@ export enum TransactionStatus {
 @Entity('transactions')
 export class Transaction {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
+
+  @ManyToOne(() => Order)
+  @JoinColumn({ name: 'order_id' })
+  order!: Order;
+
+  @ManyToOne(() => Driver)
+  @JoinColumn({ name: 'driver_id' })
+  driver!: Driver;
 
   @Column({
     type: 'enum',
     enum: TransactionType
   })
-  type: TransactionType;
+  type!: TransactionType;
 
   @Column({
     type: 'enum',
     enum: TransactionStatus,
     default: TransactionStatus.PENDING
   })
-  status: TransactionStatus;
+  status!: TransactionStatus;
 
-  @Column({ name: 'order_id' })
-  orderId: string;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2
+  })
+  amount!: number;
 
-  @Column({ name: 'driver_id' })
-  driverId: string;
-
-  @Column('decimal', { precision: 10, scale: 2 })
-  amount: number;
-
-  @Column('decimal', { precision: 10, scale: 2 })
-  commission: number;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2
+  })
+  commission!: number;
 
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
