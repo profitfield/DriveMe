@@ -2,14 +2,8 @@
 
 import { DataSource } from 'typeorm';
 import { User } from '../entities/user.entity';
-import { Driver } from '../entities/driver.entity';
-import { CarClass, DriverStatus } from '../entities/driver.entity';
-import { config } from 'dotenv';
+import { Driver, CarClass, DriverStatus } from '../entities/driver.entity';
 
-// Загружаем .env файл
-config();
-
-// Тестовые данные водителей
 const TEST_DRIVERS = [
   {
     telegramId: '100000001',
@@ -47,24 +41,6 @@ const TEST_DRIVERS = [
   }
 ];
 
-// Тестовые данные клиентов
-const TEST_CLIENTS = [
-  {
-    telegramId: '200000001',
-    username: 'client1',
-    firstName: 'Михаил',
-    lastName: 'Клиентов',
-    phoneNumber: '+79009876543'
-  },
-  {
-    telegramId: '200000002',
-    username: 'client2',
-    firstName: 'Анна',
-    lastName: 'Заказова',
-    phoneNumber: '+79009876544'
-  }
-];
-
 async function seedInitialData(dataSource: DataSource) {
   const queryRunner = dataSource.createQueryRunner();
   await queryRunner.connect();
@@ -78,37 +54,35 @@ async function seedInitialData(dataSource: DataSource) {
     for (const driverData of TEST_DRIVERS) {
       const { carClass, carInfo, status, rating, totalRides, ...userData } = driverData;
       
-      // Создаем пользователя для водителя
+      // Создаем пользователя
       const user = await usersRepository.save(
-        usersRepository.create(userData)
+        usersRepository.create({
+          telegramId: userData.telegramId,
+          username: userData.username,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          phoneNumber: userData.phoneNumber
+        })
       );
 
       // Создаем водителя
-      await driversRepository.save(
-        driversRepository.create({
-          user,
-          carClass,
-          carInfo,
-          status,
-          rating,
-          totalRides,
-          commissionBalance: 0
-        })
-      );
+      const driver = driversRepository.create({
+        user,
+        carClass,
+        carInfo,
+        status,
+        rating,
+        totalRides,
+        commissionBalance: 0
+      });
+
+      await driversRepository.save(driver);
 
       console.log(`Created driver: ${userData.firstName} ${userData.lastName}`);
     }
 
-    // Создаем тестовых клиентов
-    for (const clientData of TEST_CLIENTS) {
-      await usersRepository.save(
-        usersRepository.create(clientData)
-      );
-      console.log(`Created client: ${clientData.firstName} ${clientData.lastName}`);
-    }
-
     await queryRunner.commitTransaction();
-    console.log('All test data has been successfully created');
+    console.log('Test data has been successfully created');
 
   } catch (error) {
     await queryRunner.rollbackTransaction();
@@ -128,7 +102,7 @@ async function runSeeds() {
     password: process.env.DB_PASSWORD || 'driveme_pass',
     database: process.env.DB_NAME || 'driveme',
     entities: [User, Driver],
-    synchronize: false, // Изменяем на false
+    synchronize: false,
     logging: true
   });
 
@@ -148,13 +122,7 @@ async function runSeeds() {
   }
 }
 
-// Запускаем сиды
-runSeeds()
-  .then(() => {
-    console.log('Seeding completed');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('Seeding failed:', error);
-    process.exit(1);
-  });
+runSeeds().catch((error) => {
+  console.error('Seeding failed:', error);
+  process.exit(1);
+});

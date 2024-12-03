@@ -1,48 +1,61 @@
-// src/services/auth.service.ts
+// src/services/telegram-auth.service.ts
 
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
+import { JwtService } from '@nestjs/jwt';
+import { createHash, createHmac } from 'crypto';
 import { UsersService } from './users.service';
-import { JwtService } from './jwt.service';
-import { TelegramLoginDto, TelegramAuthResponseDto } from '../dto/auth.dto';
+import { TelegramLoginDto } from '../dto/auth.dto';
 
 @Injectable()
-export class AuthService {
+export class TelegramAuthService {
+  private readonly logger = new Logger(TelegramAuthService.name);
+
   constructor(
-    private configService: ConfigService,
-    private usersService: UsersService,
-    private jwtService: JwtService
+    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
+    private readonly usersService: UsersService,
   ) {}
 
-  async validateTelegramLogin(loginData: TelegramLoginDto): Promise<TelegramAuthResponseDto> {
+  async validateTelegramLogin(loginData: TelegramLoginDto) {
     try {
-      if (process.env.NODE_ENV !== 'development') {
-        if (!this.verifyTelegramHash(loginData)) {
-          throw new UnauthorizedException('Invalid telegram authentication data');
-        }
-
-        if (loginData.auth_date < (Date.now() / 1000 - 86400)) {
-          throw new UnauthorizedException('Authentication data expired');
-        }
+      // Проверяем данные
+      if (!this.verifyTelegramData(loginData)) {
+        throw new UnauthorizedException('Invalid telegram authentication data');
       }
 
+      // Проверяем срок действия авторизации (не более 24 часов)
+      if (this.isAuthExpired(loginData.auth_date)) {
+        throw new UnauthorizedException('Authentication data expired');
+      }
+
+      // Ищем или создаем пользователя
       let user = await this.usersService.findByTelegramId(loginData.id.toString());
       
       if (!user) {
+        // Создаем нового пользователя
         user = await this.usersService.create({
           telegramId: loginData.id.toString(),
           username: loginData.username,
           firstName: loginData.first_name,
-          lastName: loginData.last_name
+          lastName: loginData.last_name,
         });
       }
 
-      const { accessToken, refreshToken } = await this.jwtService.generateTokens(
-        user.id,
-        user.telegramId,
-        'client'
-      );
+      // Генерируем JWT токены
+      const accessToken = this.jwtService.sign({
+        sub: user.id,
+        telegramId: user.telegramId,
+        type: 'access',
+      });
+
+      const refreshToken = this.jwtService.sign({
+        sub: user.id,
+        telegramId: user.telegramId,
+        type: 'refresh',
+      }, {
+        expiresIn: '30d',
+      });
 
       return {
         accessToken,
@@ -50,37 +63,39 @@ export class AuthService {
         user: {
           id: user.id,
           telegramId: user.telegramId,
+          username: user.username,
           firstName: user.firstName,
           lastName: user.lastName,
-          username: user.username,
-          role: 'client'
-        }
+        },
       };
+
     } catch (error) {
-      throw new UnauthorizedException(error.message);
+      this.logger.error(`Telegram auth error: ${error.message}`, error.stack);
+      throw new UnauthorizedException('Authentication failed');
     }
   }
 
-  private verifyTelegramHash(data: TelegramLoginDto): boolean {
+  private verifyTelegramData(data: TelegramLoginDto): boolean {
     const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
-    if (!botToken) {
-      throw new Error('TELEGRAM_BOT_TOKEN is not defined');
-    }
-
-    const secret = createHash('sha256')
+    const secretKey = createHash('sha256')
       .update(botToken)
       .digest();
 
-    const checkString = Object.entries(data)
+    const dataToCheck = Object.entries(data)
       .filter(([key]) => key !== 'hash')
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
       .join('\n');
 
-    const hash = createHash('sha256')
-      .update(checkString)
+    const hash = createHmac('sha256', secretKey)
+      .update(dataToCheck)
       .digest('hex');
 
-    return hash === data.hash;
+    return data.hash === hash;
+  }
+
+  private isAuthExpired(authDate: number): boolean {
+    const now = Math.floor(Date.now() / 1000);
+    return (now - authDate) > 86400; // 24 часа
   }
 }

@@ -8,7 +8,6 @@ import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 // Конфигурация
-import { databaseConfig } from './config/database.config';
 import { validate } from './config/validation/env.validation';
 import { JwtConfigService } from './config/jwt.config';
 
@@ -25,6 +24,7 @@ import { UsersModule } from './modules/users.module';
 import { DriversModule } from './modules/drivers.module';
 import { OrdersModule } from './modules/orders.module';
 import { AssignmentModule } from './modules/assignment/assignment.module';
+import { TelegramModule } from './modules/telegram.module';
 
 // Guards
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -56,8 +56,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         entities: [User, Driver, Order, ChatMessage, Transaction],
-        synchronize: process.env.NODE_ENV !== 'production',
-        logging: process.env.NODE_ENV === 'development'
+        synchronize: false, // Отключаем автоматическую синхронизацию
+        logging: configService.get<string>('NODE_ENV') === 'development'
       }),
       inject: [ConfigService],
     }),
@@ -79,7 +79,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     UsersModule,
     DriversModule,
     OrdersModule,
-    AssignmentModule
+    AssignmentModule,
+    TelegramModule // Добавляем TelegramModule
   ],
   providers: [
     // JWT конфигурация

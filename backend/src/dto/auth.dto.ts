@@ -1,12 +1,20 @@
-// src/dto/auth.dto.ts
+// src/dto/telegram-auth.dto.ts
 
+import { IsString, IsNumber, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsString, IsOptional } from 'class-validator';
 
 export class TelegramLoginDto {
   @ApiProperty()
   @IsNumber()
   id: number;
+
+  @ApiProperty()
+  @IsString()
+  hash: string;
+
+  @ApiProperty()
+  @IsNumber()
+  auth_date: number;
 
   @ApiProperty({ required: false })
   @IsString()
@@ -23,39 +31,8 @@ export class TelegramLoginDto {
   @IsOptional()
   username?: string;
 
-  @ApiProperty()
-  @IsNumber()
-  auth_date: number;
-
-  @ApiProperty()
+  @ApiProperty({ required: false })
   @IsString()
-  hash: string;
-}
-
-export class TelegramAuthResponseDto {
-  @ApiProperty()
-  accessToken: string;
-
-  @ApiProperty()
-  refreshToken: string;
-
-  @ApiProperty({
-    type: 'object',
-    properties: {
-      id: { type: 'string' },
-      telegramId: { type: 'string' },
-      firstName: { type: 'string', nullable: true },
-      lastName: { type: 'string', nullable: true },
-      username: { type: 'string', nullable: true },
-      role: { type: 'string', enum: ['client', 'driver'] }
-    }
-  })
-  user: {
-    id: string;
-    telegramId: string;
-    firstName?: string;
-    lastName?: string;
-    username?: string;
-    role: 'client' | 'driver';
-  };
+  @IsOptional()
+  photo_url?: string;
 }

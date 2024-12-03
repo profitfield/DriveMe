@@ -3,7 +3,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
-import { Order, OrderStatus, OrderType } from '../entities/order.entity';
+import { Order, OrderStatus, OrderType, PaymentType } from '../entities/order.entity';
 import { Driver, DriverStatus } from '../entities/driver.entity';
 import { CreateOrderDto } from '../dto/order.dto';
 import { PriceService } from './price.service';
@@ -26,7 +26,7 @@ export class OrdersService {
     const pickupDatetime = new Date(createOrderDto.pickupDatetime);
     
     if (pickupDatetime < new Date()) {
-      throw new BadRequestException('Pickup time cannot be in the past');
+      throw new BadRequestException('Время подачи не может быть в прошлом');
     }
 
     const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
@@ -44,14 +44,14 @@ export class OrdersService {
 
       const commission = this.priceService.calculateCommission(priceCalculation.finalPrice);
 
-      const order = this.ordersRepository.create({
+      // Создаем заказ
+      const order = queryRunner.manager.create(Order, {
         ...createOrderDto,
         client: { id: userId },
-        pickupDatetime,
         price: priceCalculation.finalPrice,
         commission,
         status: OrderStatus.CREATED,
-        paymentType: 'cash',
+        paymentType: PaymentType.CASH,
         bonusPayment: 0
       });
 
@@ -78,8 +78,8 @@ export class OrdersService {
 
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`Failed to create order: ${error.message}`);
-      throw new BadRequestException('Failed to create order');
+      this.logger.error(`Ошибка создания заказа: ${error.message}`);
+      throw error;
     } finally {
       await queryRunner.release();
     }
@@ -90,11 +90,11 @@ export class OrdersService {
       where: { id },
       relations: ['client', 'driver', 'driver.user']
     });
-    
+
     if (!order) {
-      throw new NotFoundException('Order not found');
+      throw new NotFoundException('Заказ не найден');
     }
-    
+
     return order;
   }
 
@@ -106,19 +106,118 @@ export class OrdersService {
     });
   }
 
-  async getActiveOrders(): Promise<Order[]> {
-    const activeStatuses = [
-      OrderStatus.CREATED,
-      OrderStatus.DRIVER_ASSIGNED,
-      OrderStatus.CONFIRMED,
-      OrderStatus.EN_ROUTE,
-      OrderStatus.ARRIVED,
-      OrderStatus.STARTED
-    ];
+  async updateStatus(id: string, status: OrderStatus): Promise<Order> {
+    const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
+    try {
+      const order = await this.findById(id);
+      
+      if (!this.isValidStatusTransition(order.status, status)) {
+        throw new BadRequestException(`Недопустимое изменение статуса с ${order.status} на ${status}`);
+      }
+
+      order.status = status;
+
+      if (status === OrderStatus.COMPLETED && order.driver) {
+        // Создаем транзакцию и обновляем статистику водителя
+        await this.transactionService.createOrderTransaction(order);
+        
+        order.driver.totalRides += 1;
+        await queryRunner.manager.save(Driver, order.driver);
+      }
+
+      await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+
+      return this.findById(id);
+
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async cancelOrder(id: string, reason: string): Promise<Order> {
+    const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const order = await this.findById(id);
+      
+      const cancellableStatuses = [
+        OrderStatus.CREATED,
+        OrderStatus.DRIVER_ASSIGNED,
+        OrderStatus.CONFIRMED
+      ];
+
+      if (!cancellableStatuses.includes(order.status)) {
+        throw new BadRequestException('Заказ не может быть отменен в текущем статусе');
+      }
+
+      order.status = OrderStatus.CANCELLED;
+      order.cancellationReason = reason;
+
+      // Если был назначен водитель, освобождаем его
+      if (order.driver) {
+        order.driver.status = DriverStatus.ONLINE;
+        await queryRunner.manager.save(Driver, order.driver);
+      }
+
+      await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+
+      return order;
+
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  private isValidStatusTransition(currentStatus: OrderStatus, newStatus: OrderStatus): boolean {
+    const validTransitions = {
+      [OrderStatus.CREATED]: [OrderStatus.DRIVER_ASSIGNED, OrderStatus.CANCELLED],
+      [OrderStatus.DRIVER_ASSIGNED]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
+      [OrderStatus.CONFIRMED]: [OrderStatus.EN_ROUTE, OrderStatus.CANCELLED],
+      [OrderStatus.EN_ROUTE]: [OrderStatus.ARRIVED],
+      [OrderStatus.ARRIVED]: [OrderStatus.STARTED],
+      [OrderStatus.STARTED]: [OrderStatus.COMPLETED],
+      [OrderStatus.COMPLETED]: [],
+      [OrderStatus.CANCELLED]: []
+    };
+
+    return validTransitions[currentStatus]?.includes(newStatus) ?? false;
+  }
+
+  private getAirportCode(address?: string): 'SVO' | 'DME' | 'VKO' | undefined {
+    if (!address) return undefined;
+    
+    const normalizedAddress = address.toLowerCase();
+    if (normalizedAddress.includes('шереметьево')) return 'SVO';
+    if (normalizedAddress.includes('домодедово')) return 'DME';
+    if (normalizedAddress.includes('внуково')) return 'VKO';
+    
+    return undefined;
+  }
+
+  async getActiveOrders(): Promise<Order[]> {
     return this.ordersRepository.find({
       where: {
-        status: In(activeStatuses)
+        status: In([
+          OrderStatus.CREATED,
+          OrderStatus.DRIVER_ASSIGNED,
+          OrderStatus.CONFIRMED,
+          OrderStatus.EN_ROUTE,
+          OrderStatus.ARRIVED,
+          OrderStatus.STARTED
+        ])
       },
       relations: ['client', 'driver', 'driver.user'],
       order: { pickupDatetime: 'ASC' }
@@ -147,121 +246,11 @@ export class OrdersService {
     });
   }
 
-  async cancelOrder(id: string, reason: string): Promise<Order> {
-    const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const order = await this.findById(id);
-
-      const cancellableStatuses = [
-        OrderStatus.CREATED,
-        OrderStatus.DRIVER_ASSIGNED,
-        OrderStatus.CONFIRMED
-      ];
-
-      if (!cancellableStatuses.includes(order.status)) {
-        throw new BadRequestException('Order cannot be cancelled in current status');
-      }
-
-      order.status = OrderStatus.CANCELLED;
-      order.cancellationReason = reason;
-
-      // Если был назначен водитель, освобождаем его
-      if (order.driver) {
-        order.driver.status = DriverStatus.ONLINE;
-        await queryRunner.manager.save(order.driver);
-      }
-
-      const savedOrder = await queryRunner.manager.save(Order, order);
-      await queryRunner.commitTransaction();
-      return savedOrder;
-
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  async updateStatus(id: string, status: OrderStatus): Promise<Order> {
-    const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const order = await this.findById(id);
-      
-      if (!this.isValidStatusTransition(order.status, status)) {
-        throw new BadRequestException('Invalid status transition');
-      }
-
-      order.status = status;
-      await queryRunner.manager.save(Order, order);
-
-      if (status === OrderStatus.COMPLETED) {
-        // Создаем транзакцию
-        await this.transactionService.createOrderTransaction(order);
-        
-        // Обновляем статистику водителя
-        if (order.driver) {
-          order.driver.totalRides += 1;
-          await queryRunner.manager.save(order.driver);
-        }
-      }
-
-      await queryRunner.commitTransaction();
-      return order;
-
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(`Failed to update order status: ${error.message}`);
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  private getAirportCode(address?: string): 'SVO' | 'DME' | 'VKO' | undefined {
-    if (!address) return undefined;
-    
-    if (address.includes('Шереметьево')) return 'SVO';
-    if (address.includes('Домодедово')) return 'DME';
-    if (address.includes('Внуково')) return 'VKO';
-    
-    return undefined;
-  }
-
-  private isValidStatusTransition(currentStatus: OrderStatus, newStatus: OrderStatus): boolean {
-    const validTransitions = {
-      [OrderStatus.CREATED]: [
-        OrderStatus.DRIVER_ASSIGNED,
-        OrderStatus.CANCELLED
-      ],
-      [OrderStatus.DRIVER_ASSIGNED]: [
-        OrderStatus.CONFIRMED,
-        OrderStatus.CANCELLED
-      ],
-      [OrderStatus.CONFIRMED]: [
-        OrderStatus.EN_ROUTE,
-        OrderStatus.CANCELLED
-      ],
-      [OrderStatus.EN_ROUTE]: [
-        OrderStatus.ARRIVED
-      ],
-      [OrderStatus.ARRIVED]: [
-        OrderStatus.STARTED
-      ],
-      [OrderStatus.STARTED]: [
-        OrderStatus.COMPLETED
-      ],
-      [OrderStatus.COMPLETED]: [],
-      [OrderStatus.CANCELLED]: []
-    };
-
-    return validTransitions[currentStatus]?.includes(newStatus) ?? false;
+  async getAllOrders(): Promise<Order[]> {
+    return this.ordersRepository.find({
+      relations: ['client', 'driver', 'driver.user'],
+      order: { createdAt: 'DESC' }
+    });
   }
 
   async getOrderStatistics(userId: string): Promise<{
@@ -282,46 +271,5 @@ export class OrdersService {
         .filter(o => o.status === OrderStatus.COMPLETED)
         .reduce((sum, order) => sum + Number(order.price), 0)
     };
-  }
-
-  async getAllOrders(): Promise<Order[]> {
-    return this.ordersRepository.find({
-      relations: ['client', 'driver', 'driver.user'],
-      order: { createdAt: 'DESC' }
-    });
-  }
-
-  async searchOrders(params: {
-    startDate?: Date;
-    endDate?: Date;
-    status?: OrderStatus;
-    driverId?: string;
-    clientId?: string;
-  }): Promise<Order[]> {
-    const query = this.ordersRepository.createQueryBuilder('order')
-      .leftJoinAndSelect('order.client', 'client')
-      .leftJoinAndSelect('order.driver', 'driver')
-      .leftJoinAndSelect('driver.user', 'driverUser');
-
-    if (params.startDate && params.endDate) {
-      query.andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-        startDate: params.startDate,
-        endDate: params.endDate
-      });
-    }
-
-    if (params.status) {
-      query.andWhere('order.status = :status', { status: params.status });
-    }
-
-    if (params.driverId) {
-      query.andWhere('driver.id = :driverId', { driverId: params.driverId });
-    }
-
-    if (params.clientId) {
-      query.andWhere('client.id = :clientId', { clientId: params.clientId });
-    }
-
-    return query.getMany();
   }
 }

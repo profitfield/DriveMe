@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   postgres:
     image: postgres:14-alpine
@@ -23,3 +25,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  driveme-network:
+    driver: bridge

@@ -20,13 +20,25 @@ export enum OrderType {
 
 export enum OrderStatus {
   CREATED = 'created',
-  CONFIRMED = 'confirmed',
   DRIVER_ASSIGNED = 'driver_assigned',
+  CONFIRMED = 'confirmed',
   EN_ROUTE = 'en_route',
   ARRIVED = 'arrived',
   STARTED = 'started',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled'
+}
+
+export enum PaymentType {
+  CASH = 'cash',
+  BONUS = 'bonus',
+  MIXED = 'mixed'
+}
+
+interface Address {
+  address: string;
+  latitude: number;
+  longitude: number;
 }
 
 @Entity('orders')
@@ -72,22 +84,14 @@ export class Order {
     type: 'jsonb',
     name: 'pickup_address'
   })
-  pickupAddress!: {
-    address: string;
-    latitude: number;
-    longitude: number;
-  };
+  pickupAddress!: Address;
 
   @Column({
     type: 'jsonb',
     name: 'destination_address',
     nullable: true
   })
-  destinationAddress?: {
-    address: string;
-    latitude: number;
-    longitude: number;
-  };
+  destinationAddress?: Address;
 
   @Column({
     type: 'decimal',
@@ -113,10 +117,10 @@ export class Order {
   @Column({
     name: 'payment_type',
     type: 'enum',
-    enum: ['cash', 'bonus', 'mixed'],
-    default: 'cash'
+    enum: PaymentType,
+    default: PaymentType.CASH
   })
-  paymentType!: 'cash' | 'bonus' | 'mixed';
+  paymentType!: PaymentType;
 
   @Column({
     name: 'bonus_payment',

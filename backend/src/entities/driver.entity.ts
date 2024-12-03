@@ -11,6 +11,12 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
+export enum CarClass {
+  PREMIUM = 'premium',
+  PREMIUM_LARGE = 'premium_large',
+  ELITE = 'elite'
+}
+
 export enum DriverStatus {
   OFFLINE = 'offline',
   ONLINE = 'online',
@@ -18,10 +24,11 @@ export enum DriverStatus {
   BREAK = 'break'
 }
 
-export enum CarClass {
-  PREMIUM = 'premium',
-  PREMIUM_LARGE = 'premium_large',
-  ELITE = 'elite'
+interface CarInfo {
+  model: string;
+  number: string;
+  year: number;
+  color: string;
 }
 
 @Entity('drivers')
@@ -51,12 +58,7 @@ export class Driver {
     type: 'jsonb',
     name: 'car_info'
   })
-  carInfo!: {
-    model: string;
-    number: string;
-    year: number;
-    color: string;
-  };
+  carInfo!: CarInfo;
 
   @Column({
     type: 'decimal',
