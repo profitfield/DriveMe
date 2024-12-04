@@ -152,6 +152,33 @@ class EnvironmentVariables {
   @Transform(({ value }) => Number(value))
   @IsOptional()
   REDIS_PORT?: number;
+
+  @IsString()
+  @IsOptional()
+  REDIS_PASSWORD?: string;
+
+  @IsNumber()
+  @Transform(({ value }) => Number(value))
+  @IsOptional()
+  REDIS_DB?: number;
+
+  @IsString()
+  @IsOptional()
+  QUEUE_PREFIX?: string;
+
+  @IsString()
+  @IsOptional()
+  QUEUE_NOTIFICATION_NAME?: string;
+
+  @IsNumber()
+  @Transform(({ value }) => Number(value))
+  @IsOptional()
+  QUEUE_DEFAULT_ATTEMPTS?: number;
+
+  @IsNumber()
+  @Transform(({ value }) => Number(value))
+  @IsOptional()
+  QUEUE_JOB_TIMEOUT?: number;
 }
 
 export function validate(config: Record<string, unknown>) {

@@ -5,21 +5,23 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from '../services/auth.service';
-import { JwtService } from '../services/jwt.service';
 import { JwtStrategy } from '../strategies/jwt.strategy';
 import { AuthController } from '../controllers/auth.controller';
 import { UsersModule } from './users.module';
-import { TelegramAuthValidator } from '../validators/telegram-auth.validator';
+import { DriversModule } from './drivers.module';
+import { RolesGuard } from '../guards/roles.guard';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
     UsersModule,
+    DriversModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '30d' }
+        signOptions: { expiresIn: '1h' }
       }),
       inject: [ConfigService]
     })
@@ -27,10 +29,12 @@ import { TelegramAuthValidator } from '../validators/telegram-auth.validator';
   controllers: [AuthController],
   providers: [
     AuthService,
-    JwtService,
     JwtStrategy,
-    TelegramAuthValidator
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard
+    }
   ],
-  exports: [AuthService, JwtService]
+  exports: [AuthService, JwtModule]
 })
 export class AuthModule {}

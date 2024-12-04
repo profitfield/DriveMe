@@ -7,24 +7,28 @@ import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
-// Конфигурация
+// Configuration
 import { validate } from './config/validation/env.validation';
 import { JwtConfigService } from './config/jwt.config';
 
-// Сущности
+// Entities
 import { User } from './entities/user.entity';
 import { Driver } from './entities/driver.entity';
 import { Order } from './entities/order.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { Transaction } from './entities/transaction.entity';
 
-// Модули
+// Modules
 import { AuthModule } from './modules/auth.module';
 import { UsersModule } from './modules/users.module';
 import { DriversModule } from './modules/drivers.module';
 import { OrdersModule } from './modules/orders.module';
 import { AssignmentModule } from './modules/assignment/assignment.module';
 import { TelegramModule } from './modules/telegram.module';
+import { WebSocketModule } from './modules/websocket/websocket.module';
+
+// Controllers
+import { PriceController } from './controllers/price.controller';
 
 // Guards
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -38,14 +42,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
   imports: [
-    // Конфигурация приложения с валидацией
+    // Application configuration
     ConfigModule.forRoot({
       isGlobal: true,
       validate,
       cache: true,
     }),
 
-    // База данных с асинхронной конфигурацией
+    // Database configuration
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService): Promise<TypeOrmModuleOptions> => ({
@@ -56,13 +60,13 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         entities: [User, Driver, Order, ChatMessage, Transaction],
-        synchronize: false, // Отключаем автоматическую синхронизацию
+        synchronize: false,
         logging: configService.get<string>('NODE_ENV') === 'development'
       }),
       inject: [ConfigService],
     }),
 
-    // JWT с асинхронной конфигурацией
+    // JWT configuration
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -74,19 +78,23 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       inject: [ConfigService],
     }),
 
-    // Модули приложения
+    // Feature modules
     AuthModule,
     UsersModule,
     DriversModule,
     OrdersModule,
     AssignmentModule,
-    TelegramModule // Добавляем TelegramModule
+    TelegramModule,
+    WebSocketModule
+  ],
+  controllers: [
+    PriceController
   ],
   providers: [
-    // JWT конфигурация
+    // JWT configuration
     JwtConfigService,
     
-    // Глобальные guards
+    // Global guards
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
@@ -96,7 +104,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       useClass: RateLimiterGuard,
     },
 
-    // Глобальный фильтр исключений
+    // Global exception filter
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,

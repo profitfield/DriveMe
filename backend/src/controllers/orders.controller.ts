@@ -11,112 +11,139 @@ import {
   NotFoundException, 
   BadRequestException, 
   Patch,
-  Query 
+  Query,
+  Logger 
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from '../services/orders.service';
 import { CreateOrderDto, UpdateOrderStatusDto, OrderResponseDto } from '../dto/order.dto';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { RolesGuard } from '../guards/roles.guard';
+import { Roles } from '../decorators/roles.decorator';
+import { UserRole } from '../services/auth.service';
 import { Order, OrderStatus } from '../entities/order.entity';
 import { RateLimit } from '../decorators/rate-limit.decorator';
-import { rateLimitConfig } from '../config/rate-limit.config';
 
 @ApiTags('orders')
 @Controller('orders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class OrdersController {
+  private readonly logger = new Logger(OrdersController.name);
+
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a new order' })
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Создать новый заказ' })
   @ApiResponse({ 
     status: 201, 
-    description: 'Order successfully created',
+    description: 'Заказ успешно создан',
     type: OrderResponseDto 
   })
-  @RateLimit(rateLimitConfig.orders.create)
+  @RateLimit({ points: 10, duration: 60, keyPrefix: 'orders:create' })
   async createOrder(
     @Request() req,
     @Body() createOrderDto: CreateOrderDto
   ): Promise<Order> {
-    return this.ordersService.create(createOrderDto, req.user.userId);
+    this.logger.log(`Создание заказа пользователем: ${req.user.sub}`);
+    return this.ordersService.create(createOrderDto, req.user.sub);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all user orders' })
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Получить все заказы пользователя' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Returns list of orders',
+    description: 'Список заказов',
     type: [OrderResponseDto]
   })
   async getUserOrders(@Request() req): Promise<Order[]> {
-    return this.ordersService.findByClientId(req.user.userId);
+    return this.ordersService.findByClientId(req.user.sub);
+  }
+
+  @Get('driver/active')
+  @Roles(UserRole.DRIVER)
+  @ApiOperation({ summary: 'Получить активные заказы водителя' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Список активных заказов',
+    type: [OrderResponseDto]
+  })
+  async getDriverActiveOrders(@Request() req): Promise<Order[]> {
+    return this.ordersService.findActiveOrdersByDriver(req.user.sub);
   }
 
   @Get('upcoming')
-  @ApiOperation({ summary: 'Get upcoming orders' })
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Получить предстоящие заказы' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Returns list of upcoming orders',
+    description: 'Список предстоящих заказов',
     type: [OrderResponseDto]
   })
   async getUpcomingOrders(@Request() req): Promise<Order[]> {
-    return this.ordersService.getUpcomingOrders(req.user.userId);
+    return this.ordersService.getUpcomingOrders(req.user.sub);
   }
 
-  @Get('active')
-  @ApiOperation({ summary: 'Get active orders' })
+  @Get('available')
+  @Roles(UserRole.DRIVER)
+  @ApiOperation({ summary: 'Получить доступные заказы' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Returns list of active orders',
+    description: 'Список доступных заказов',
     type: [OrderResponseDto]
   })
-  async getActiveOrders(): Promise<Order[]> {
-    return this.ordersService.getActiveOrders();
+  async getAvailableOrders(): Promise<Order[]> {
+    return this.ordersService.getAvailableOrders();
   }
 
   @Get('stats')
-  @ApiOperation({ summary: 'Get order statistics' })
+  @Roles(UserRole.CLIENT, UserRole.DRIVER)
+  @ApiOperation({ summary: 'Получить статистику заказов' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Returns order statistics'
+    description: 'Статистика заказов'
   })
   async getOrderStats(@Request() req) {
-    return this.ordersService.getOrderStatistics(req.user.userId);
+    const role = req.user.role;
+    if (role === UserRole.CLIENT) {
+      return this.ordersService.getClientStatistics(req.user.sub);
+    }
+    return this.ordersService.getDriverStatistics(req.user.sub);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get order by ID' })
+  @Roles(UserRole.CLIENT, UserRole.DRIVER)
+  @ApiOperation({ summary: 'Получить заказ по ID' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Returns order details',
+    description: 'Детали заказа',
     type: OrderResponseDto
   })
-  @ApiResponse({ status: 404, description: 'Order not found' })
+  @ApiResponse({ status: 404, description: 'Заказ не найден' })
   async getOrder(
     @Param('id') id: string,
     @Request() req
   ): Promise<Order> {
     const order = await this.ordersService.findById(id);
     
-    // Проверяем доступ к заказу
-    if (order.client.id !== req.user.userId && 
-        (!order.driver || order.driver.id !== req.user.userId)) {
-      throw new BadRequestException('Access denied');
+    if (!this.canAccessOrder(order, req.user)) {
+      throw new BadRequestException('Нет доступа к заказу');
     }
 
     return order;
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update order status' })
+  @Roles(UserRole.DRIVER)
+  @ApiOperation({ summary: 'Обновить статус заказа' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Order status updated',
+    description: 'Статус обновлен',
     type: OrderResponseDto 
   })
-  @RateLimit(rateLimitConfig.orders.status)
+  @RateLimit({ points: 30, duration: 60, keyPrefix: 'orders:status' })
   async updateOrderStatus(
     @Param('id') id: string,
     @Body() updateStatusDto: UpdateOrderStatusDto,
@@ -124,19 +151,19 @@ export class OrdersController {
   ): Promise<Order> {
     const order = await this.ordersService.findById(id);
     
-    // Проверяем права на изменение статуса
-    if (!this.canUpdateStatus(order, updateStatusDto.status, req.user)) {
-      throw new BadRequestException('Cannot update order status');
+    if (!this.canUpdateOrderStatus(order, updateStatusDto.status, req.user)) {
+      throw new BadRequestException('Нет прав на изменение статуса');
     }
 
     return this.ordersService.updateStatus(id, updateStatusDto.status);
   }
 
   @Patch(':id/cancel')
-  @ApiOperation({ summary: 'Cancel order' })
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Отменить заказ' })
   @ApiResponse({ 
     status: 200, 
-    description: 'Order cancelled',
+    description: 'Заказ отменен',
     type: OrderResponseDto
   })
   async cancelOrder(
@@ -145,29 +172,37 @@ export class OrdersController {
     @Request() req
   ): Promise<Order> {
     const order = await this.ordersService.findById(id);
-    if (order.client.id !== req.user.userId) {
-      throw new BadRequestException('Access denied');
+    
+    if (order.client.id !== req.user.sub) {
+      throw new BadRequestException('Можно отменять только свои заказы');
     }
+
+    this.logger.log(`Отмена заказа ${id} пользователем ${req.user.sub}`);
     return this.ordersService.cancelOrder(id, reason);
   }
 
-  private canUpdateStatus(order: Order, newStatus: OrderStatus, user: any): boolean {
-    // Клиент может только отменять заказ
-    if (order.client.id === user.userId) {
-      return newStatus === OrderStatus.CANCELLED;
+  private canAccessOrder(order: Order, user: any): boolean {
+    if (user.role === UserRole.CLIENT) {
+      return order.client.id === user.sub;
     }
-
-    // Водитель может обновлять статус своего заказа
-    if (order.driver?.id === user.userId) {
-      const driverAllowedStatuses = [
-        OrderStatus.EN_ROUTE,
-        OrderStatus.ARRIVED,
-        OrderStatus.STARTED,
-        OrderStatus.COMPLETED
-      ];
-      return driverAllowedStatuses.includes(newStatus);
+    if (user.role === UserRole.DRIVER) {
+      return order.driver?.id === user.sub;
     }
-
     return false;
+  }
+
+  private canUpdateOrderStatus(order: Order, newStatus: OrderStatus, user: any): boolean {
+    if (!order.driver || order.driver.id !== user.sub) {
+      return false;
+    }
+
+    const allowedStatuses = [
+      OrderStatus.EN_ROUTE,
+      OrderStatus.ARRIVED,
+      OrderStatus.STARTED,
+      OrderStatus.COMPLETED
+    ];
+
+    return allowedStatuses.includes(newStatus);
   }
 }

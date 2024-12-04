@@ -10,18 +10,22 @@ import { OrdersController } from '../controllers/orders.controller';
 import { DriverAssignmentService } from '../services/driver-assignment.service';
 import { PriceService } from '../services/price.service';
 import { TransactionService } from '../services/transaction.service';
+import { NotificationModule } from './notification.module';
+import { NotificationQueueService } from '../services/notification-queue.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, Driver, Transaction])
+    TypeOrmModule.forFeature([Order, Driver, Transaction]),
+    NotificationModule
   ],
   controllers: [OrdersController],
   providers: [
     OrdersService,
     DriverAssignmentService,
     PriceService,
-    TransactionService
+    TransactionService,
+    NotificationQueueService
   ],
-  exports: [OrdersService, TransactionService]
+  exports: [OrdersService]
 })
 export class OrdersModule {}
