@@ -1,4 +1,4 @@
-// src/entities/order.entity.ts
+// backend/src/entities/order.entity.ts
 
 import {
   Entity,
@@ -14,7 +14,7 @@ import { Driver, CarClass } from './driver.entity';
 
 export enum OrderType {
   PRE_ORDER = 'pre_order',
-  HOURLY = 'hourly',
+  HOURLY = 'hourly', 
   AIRPORT = 'airport'
 }
 
@@ -35,6 +35,14 @@ export enum PaymentType {
   MIXED = 'mixed'
 }
 
+export enum PaymentStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+  REFUNDED = 'refunded'
+}
+
 interface Address {
   address: string;
   latitude: number;
@@ -46,6 +54,13 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Column({ 
+      name: 'order_number',
+      unique: true,
+      nullable: false
+  })
+  orderNumber!: string;
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'client_id' })
   client!: User;
@@ -55,86 +70,106 @@ export class Order {
   driver?: Driver;
 
   @Column({
-    type: 'enum',
-    enum: OrderType
+      type: 'enum',
+      enum: OrderType
   })
   type!: OrderType;
 
   @Column({
-    type: 'enum',
-    enum: OrderStatus,
-    default: OrderStatus.CREATED
+      type: 'enum',
+      enum: OrderStatus,
+      default: OrderStatus.CREATED
   })
   status!: OrderStatus;
 
   @Column({
-    name: 'car_class',
-    type: 'enum',
-    enum: CarClass
+      name: 'car_class',
+      type: 'enum',
+      enum: CarClass
   })
   carClass!: CarClass;
 
   @Column({ 
-    name: 'pickup_datetime',
-    type: 'timestamp with time zone'
+      name: 'pickup_datetime',
+      type: 'timestamp with time zone'
   })
   pickupDatetime!: Date;
 
   @Column({
-    type: 'jsonb',
-    name: 'pickup_address'
+      type: 'jsonb',
+      name: 'pickup_address'
   })
   pickupAddress!: Address;
 
   @Column({
-    type: 'jsonb',
-    name: 'destination_address',
-    nullable: true
+      type: 'jsonb',
+      name: 'destination_address',
+      nullable: true
   })
   destinationAddress?: Address;
 
   @Column({
-    type: 'decimal',
-    precision: 10,
-    scale: 2
+      name: 'estimated_price',
+      type: 'decimal',
+      precision: 10,
+      scale: 2,
+      nullable: false,
+      default: 0.00
   })
-  price!: number;
+  estimatedPrice!: number;
 
   @Column({
-    type: 'decimal',
-    precision: 10,
-    scale: 2
+      name: 'actual_price',
+      type: 'decimal',
+      precision: 10,
+      scale: 2,
+      nullable: true
+  })
+  actualPrice?: number;
+
+  @Column({
+      type: 'decimal',
+      precision: 10,
+      scale: 2
   })
   commission!: number;
 
   @Column({
-    name: 'duration_hours',
-    type: 'integer',
-    nullable: true
+      name: 'duration_hours',
+      type: 'integer',
+      nullable: true
   })
   durationHours?: number;
 
   @Column({
-    name: 'payment_type',
-    type: 'enum',
-    enum: PaymentType,
-    default: PaymentType.CASH
+      name: 'payment_type',
+      type: 'enum',
+      enum: PaymentType,
+      default: PaymentType.CASH
   })
   paymentType!: PaymentType;
 
   @Column({
-    name: 'bonus_payment',
-    type: 'decimal',
-    precision: 10,
-    scale: 2,
-    default: 0
+      name: 'payment_status',
+      type: 'enum',
+      enum: PaymentStatus,
+      default: PaymentStatus.PENDING
+  })
+  paymentStatus!: PaymentStatus;
+
+  @Column({
+      name: 'bonus_payment',
+      type: 'decimal',
+      precision: 10,
+      scale: 2,
+      default: 0
   })
   bonusPayment!: number;
 
   @Column({
-    name: 'cancellation_reason',
-    type: 'text',
-    nullable: true
+      name: 'cancellation_reason',
+      type: 'text',
+      nullable: true
   })
   cancellationReason?: string;
 

@@ -1,15 +1,16 @@
-// src/app.module.ts
+// backend/src/app.module.ts
 
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
+import { CacheModule } from '@nestjs/cache-manager';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
-import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 // Configuration
 import { validate } from './config/validation/env.validation';
 import { JwtConfigService } from './config/jwt.config';
+import { CacheConfigService } from './config/cache.config';
 
 // Entities
 import { User } from './entities/user.entity';
@@ -26,6 +27,7 @@ import { OrdersModule } from './modules/orders.module';
 import { AssignmentModule } from './modules/assignment/assignment.module';
 import { TelegramModule } from './modules/telegram.module';
 import { WebSocketModule } from './modules/websocket/websocket.module';
+import { NotificationModule } from './modules/notification.module';
 
 // Controllers
 import { PriceController } from './controllers/price.controller';
@@ -41,80 +43,82 @@ import { LoggingMiddleware } from './middleware/logging.middleware';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
-  imports: [
-    // Application configuration
-    ConfigModule.forRoot({
-      isGlobal: true,
-      validate,
-      cache: true,
-    }),
+    imports: [
+        // Application configuration
+        ConfigModule.forRoot({
+            isGlobal: true,
+            validate,
+            cache: true,
+        }),
 
-    // Database configuration
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService): Promise<TypeOrmModuleOptions> => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USER'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_NAME'),
-        entities: [User, Driver, Order, ChatMessage, Transaction],
-        synchronize: false,
-        logging: configService.get<string>('NODE_ENV') === 'development'
-      }),
-      inject: [ConfigService],
-    }),
+        // Cache configuration
+        CacheModule.registerAsync({
+            isGlobal: true,
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: async (configService: ConfigService) => ({
+                ttl: configService.get('CACHE_TTL', 300),
+                max: configService.get('CACHE_MAX_ITEMS', 1000),
+                isGlobal: true
+            })
+        }),
 
-    // JWT configuration
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { 
-          expiresIn: configService.get<string>('JWT_EXPIRES_IN', '24h') 
+        // Database configuration
+        TypeOrmModule.forRootAsync({
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: async (configService: ConfigService) => ({
+                type: 'postgres',
+                host: configService.get<string>('DB_HOST'),
+                port: configService.get<number>('DB_PORT'),
+                username: configService.get<string>('DB_USER'),
+                password: configService.get<string>('DB_PASSWORD'),
+                database: configService.get<string>('DB_NAME'),
+                entities: [User, Driver, Order, ChatMessage, Transaction],
+                synchronize: false,
+                logging: configService.get<string>('NODE_ENV') === 'development'
+            })
+        }),
+
+        // Feature modules
+        AuthModule,
+        UsersModule,
+        DriversModule,
+        OrdersModule,
+        AssignmentModule,
+        TelegramModule,
+        WebSocketModule,
+        NotificationModule
+    ],
+    controllers: [
+        PriceController
+    ],
+    providers: [
+        // Configuration services
+        JwtConfigService,
+        CacheConfigService,
+
+        // Global guards
+        {
+            provide: APP_GUARD,
+            useClass: JwtAuthGuard,
+        },
+        {
+            provide: APP_GUARD,
+            useClass: RateLimiterGuard,
+        },
+
+        // Global exception filter
+        {
+            provide: APP_FILTER,
+            useClass: GlobalExceptionFilter,
         }
-      }),
-      inject: [ConfigService],
-    }),
-
-    // Feature modules
-    AuthModule,
-    UsersModule,
-    DriversModule,
-    OrdersModule,
-    AssignmentModule,
-    TelegramModule,
-    WebSocketModule
-  ],
-  controllers: [
-    PriceController
-  ],
-  providers: [
-    // JWT configuration
-    JwtConfigService,
-    
-    // Global guards
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: RateLimiterGuard,
-    },
-
-    // Global exception filter
-    {
-      provide: APP_FILTER,
-      useClass: GlobalExceptionFilter,
-    }
-  ]
+    ]
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(LoggingMiddleware)
-      .forRoutes('*');
-  }
+    configure(consumer: MiddlewareConsumer) {
+        consumer
+            .apply(LoggingMiddleware)
+            .forRoutes('*');
+    }
 }

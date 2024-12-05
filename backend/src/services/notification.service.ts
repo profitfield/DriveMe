@@ -1,154 +1,125 @@
-// src/services/notification.service.ts
+// backend/src/services/notification.service.ts
 
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bull';
-import { Queue } from 'bull';
-import { TelegramService } from './telegram.service';
 import { OrderStatus } from '../entities/order.entity';
+import { TelegramService } from './telegram.service';
 
-interface NotificationTemplate {
-  client: string;
-  driver: string;
+interface NotificationPayload {
+   type: 'order_created' | 'driver_assigned' | 'status_updated' | 'order_cancelled';
+   order: any;
+   recipientId: string;
+   additionalData?: Record<string, any>;
+}
+
+interface SystemNotification {
+   message: string;
+   severity: 'info' | 'warning' | 'error';
+   additionalData?: Record<string, any>;
 }
 
 @Injectable()
 export class NotificationService {
-  private readonly logger = new Logger(NotificationService.name);
-  private readonly templates: Record<OrderStatus, NotificationTemplate>;
+   private readonly logger = new Logger(NotificationService.name);
 
-  constructor(
-    @InjectQueue('notifications') private notificationQueue: Queue,
-    private readonly telegramService: TelegramService,
-  ) {
-    this.templates = {
-      [OrderStatus.CREATED]: {
-        client: 'Ваш заказ #{orderId} создан и ожидает подтверждения водителем.',
-        driver: 'Новый заказ #{orderId} доступен для принятия.'
-      },
-      [OrderStatus.DRIVER_ASSIGNED]: {
-        client: 'Водитель {driverName} принял ваш заказ #{orderId}.',
-        driver: 'Вы приняли заказ #{orderId}. Свяжитесь с клиентом для уточнения деталей.'
-      },
-      [OrderStatus.CONFIRMED]: {
-        client: 'Заказ #{orderId} подтвержден. Ожидайте прибытия водителя.',
-        driver: 'Заказ #{orderId} подтвержден. Приступайте к выполнению.'
-      },
-      [OrderStatus.EN_ROUTE]: {
-        client: 'Водитель выехал и направляется к вам. Ожидаемое время прибытия: {eta}.',
-        driver: 'Вы направляетесь к клиенту. Заказ #{orderId}.'
-      },
-      [OrderStatus.ARRIVED]: {
-        client: 'Водитель прибыл на место подачи.',
-        driver: 'Вы прибыли на место подачи. Ожидайте клиента.'
-      },
-      [OrderStatus.STARTED]: {
-        client: 'Поездка началась.',
-        driver: 'Поездка началась. Счетчик времени запущен.'
-      },
-      [OrderStatus.COMPLETED]: {
-        client: 'Поездка завершена. Сумма: {price}₽. Спасибо за использование нашего сервиса!',
-        driver: 'Поездка завершена. Ваш заработок: {driverEarnings}₽.'
-      },
-      [OrderStatus.CANCELLED]: {
-        client: 'Заказ #{orderId} отменен. Причина: {reason}',
-        driver: 'Заказ #{orderId} отменен. Причина: {reason}'
-      }
-    };
-  }
+   constructor(
+       private readonly telegramService: TelegramService
+   ) {}
 
-  async sendOrderStatusNotification(
-    order: any,
-    status: OrderStatus,
-    additionalData: Record<string, any> = {}
-  ): Promise<void> {
-    try {
-      const template = this.templates[status];
-      if (!template) {
-        this.logger.warn(`Шаблон не найден для статуса: ${status}`);
-        return;
-      }
+   async sendOrderNotification(payload: NotificationPayload): Promise<void> {
+       try {
+           const message = this.formatOrderMessage(
+               payload.type, 
+               payload.order, 
+               payload.additionalData
+           );
 
-      const jobData = {
-        type: 'orderStatus',
-        clientMessage: this.formatMessage(template.client, {
-          orderId: order.id,
-          driverName: order.driver?.user?.firstName,
-          ...additionalData
-        }),
-        driverMessage: order.driver ? this.formatMessage(template.driver, {
-          orderId: order.id,
-          ...additionalData
-        }) : null,
-        recipients: {
-          clientId: order.client.telegramId,
-          driverId: order.driver?.user?.telegramId
-        },
-        timestamp: new Date(),
-        metadata: {
-          orderId: order.id,
-          status,
-          additionalData
-        }
-      };
+           await this.telegramService.sendMessage(
+               payload.recipientId,
+               message
+           );
 
-      await this.notificationQueue.add('sendNotification', jobData, {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 1000
-        }
-      });
+           this.logger.debug(`Notification sent to ${payload.recipientId}: ${message}`);
+       } catch (error) {
+           this.logger.error(
+               `Failed to send notification: ${error.message}`,
+               error.stack
+           );
+       }
+   }
 
-      this.logger.log(`Уведомление о статусе заказа добавлено в очередь: ${order.id}`);
-    } catch (error) {
-      this.logger.error(
-        `Ошибка добавления уведомления в очередь для заказа ${order.id}: ${error.message}`,
-        error.stack
-      );
-    }
-  }
+   async sendSystemNotification(notification: SystemNotification): Promise<void> {
+       try {
+           const message = this.formatSystemMessage(
+               notification.message,
+               notification.severity,
+               notification.additionalData
+           );
 
-  async sendSystemAlert(
-    message: string,
-    severity: 'info' | 'warning' | 'error' = 'info',
-    metadata: Record<string, any> = {}
-  ): Promise<void> {
-    try {
-      await this.notificationQueue.add('systemAlert', {
-        message,
-        severity,
-        metadata,
-        timestamp: new Date()
-      });
+           // В MVP просто логируем системные уведомления
+           this.logger.warn(message);
+       } catch (error) {
+           this.logger.error(
+               `Failed to send system notification: ${error.message}`,
+               error.stack
+           );
+       }
+   }
 
-      this.logger.log(`Системное уведомление добавлено в очередь: ${severity}`);
-    } catch (error) {
-      this.logger.error(
-        `Ошибка отправки системного уведомления: ${error.message}`,
-        error.stack
-      );
-    }
-  }
+   private formatOrderMessage(
+       type: string,
+       order: any,
+       data?: Record<string, any>
+   ): string {
+       const templates = {
+           order_created: 'Заказ #{orderId} создан\nСтоимость: {price}₽',
+           driver_assigned: 'Водитель {driverName} принял ваш заказ',
+           status_updated: this.getStatusTemplate(order.status),
+           order_cancelled: 'Заказ #{orderId} отменен\nПричина: {reason}'
+       };
 
-  private formatMessage(template: string, data: Record<string, any>): string {
-    return template.replace(
-      /{(\w+)}/g,
-      (match, key) => {
-        const value = data[key];
-        return value !== undefined ? value.toString() : match;
-      }
-    );
-  }
+       let message = templates[type] || `Обновление заказа №${order.id}`;
+       
+       // Подставляем данные заказа
+       message = message
+           .replace('{orderId}', order.id)
+           .replace('{price}', data?.price || order.estimatedPrice);
 
-  async clearFailedJobs(): Promise<void> {
-    try {
-      const failedJobs = await this.notificationQueue.getFailed();
-      for (const job of failedJobs) {
-        await job.remove();
-      }
-      this.logger.log('Очистка неудачных задач завершена');
-    } catch (error) {
-      this.logger.error('Ошибка при очистке неудачных задач', error.stack);
-    }
-  }
+       // Подставляем дополнительные данные
+       if (data) {
+           Object.entries(data).forEach(([key, value]) => {
+               message = message.replace(`{${key}}`, value);
+           });
+       }
+
+       return message;
+   }
+
+   private getStatusTemplate(status: OrderStatus): string {
+       const templates = {
+           [OrderStatus.CREATED]: 'Заказ создан и ожидает подтверждения',
+           [OrderStatus.DRIVER_ASSIGNED]: 'Водитель назначен',
+           [OrderStatus.CONFIRMED]: 'Заказ подтвержден',
+           [OrderStatus.EN_ROUTE]: 'Водитель выехал. Ожидаемое время прибытия: {eta}',
+           [OrderStatus.ARRIVED]: 'Водитель прибыл на место',
+           [OrderStatus.STARTED]: 'Поездка началась',
+           [OrderStatus.COMPLETED]: 'Поездка завершена\nСтоимость: {price}₽',
+           [OrderStatus.CANCELLED]: 'Заказ отменен\nПричина: {reason}'
+       };
+
+       return templates[status] || `Статус заказа: ${status}`;
+   }
+
+   private formatSystemMessage(
+       message: string,
+       severity: string,
+       data?: Record<string, any>
+   ): string {
+       let formattedMessage = `[${severity.toUpperCase()}] ${message}`;
+       
+       if (data) {
+           formattedMessage += '\nДетали: ' + JSON.stringify(data, null, 2);
+       }
+
+       return formattedMessage;
+   }
 }

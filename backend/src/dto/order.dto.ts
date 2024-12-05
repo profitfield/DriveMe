@@ -1,4 +1,4 @@
-// src/dto/order.dto.ts
+// backend/src/dto/order.dto.ts
 
 import { 
   IsEnum, 
@@ -13,11 +13,12 @@ import {
   ValidateNested,
   IsLatitude,
   IsLongitude,
-  IsUUID
+  IsUUID,
+  IsBoolean
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { OrderType, OrderStatus } from '../entities/order.entity';
+import { OrderType, OrderStatus, PaymentType, PaymentStatus } from '../entities/order.entity';
 import { CarClass } from '../entities/driver.entity';
 
 export class AddressDto {
@@ -71,37 +72,21 @@ export class CreateOrderDto {
   @Max(12)
   durationHours?: number;
 
-  @ApiProperty({ required: false })
-  @IsString()
+  @ApiProperty({ enum: PaymentType })
+  @IsEnum(PaymentType)
   @IsOptional()
-  comment?: string;
-}
+  paymentType?: PaymentType = PaymentType.CASH;
 
-export class OrderPriceDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
   @IsNumber()
+  @IsOptional()
   @Min(0)
-  basePrice!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  discount!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  finalPrice!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  commission!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  total!: number;
+  bonusPayment?: number;
+  
+  @ApiProperty({ required: false })
+  @IsBoolean()
+  @IsOptional()
+  useFavoriteDriver?: boolean;
 }
 
 export class UpdateOrderStatusDto {
@@ -120,6 +105,10 @@ export class OrderResponseDto {
   @ApiProperty()
   @IsUUID()
   id!: string;
+
+  @ApiProperty()
+  @IsString()
+  orderNumber!: string;
 
   @ApiProperty({ enum: OrderType })
   @IsEnum(OrderType)
@@ -157,13 +146,28 @@ export class OrderResponseDto {
 
   @ApiProperty()
   @IsNumber()
-  @Min(0)
-  price!: number;
+  estimatedPrice!: number;
+
+  @ApiProperty({ required: false })
+  @IsNumber()
+  @IsOptional()
+  actualPrice?: number;
 
   @ApiProperty()
   @IsNumber()
-  @Min(0)
   commission!: number;
+
+  @ApiProperty({ enum: PaymentType })
+  @IsEnum(PaymentType)
+  paymentType!: PaymentType;
+
+  @ApiProperty({ enum: PaymentStatus })
+  @IsEnum(PaymentStatus)
+  paymentStatus!: PaymentStatus;
+
+  @ApiProperty()
+  @IsNumber()
+  bonusPayment!: number;
 
   @ApiProperty({ required: false })
   @IsString()
@@ -176,51 +180,16 @@ export class OrderResponseDto {
   @ApiProperty()
   updatedAt!: Date;
 
-  @ApiProperty()
+  @ApiProperty({ required: false })
   driver?: {
-    id: string;
-    name: string;
-    phone: string;
-    carInfo: {
-      model: string;
-      number: string;
-      color: string;
-    };
-    rating: number;
-  };
-}
-
-export class OrderStatsDto {
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  total!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  completed!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  cancelled!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  revenue!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  completionRate!: number;
-
-  @ApiProperty()
-  todayOrders?: {
-    total: number;
-    completed: number;
-    revenue: number;
+      id: string;
+      name: string;
+      phone: string;
+      carInfo: {
+          model: string;
+          number: string;
+          color: string;
+      };
+      rating: number;
   };
 }
