@@ -1,5 +1,3 @@
-// backend/src/dto/order.dto.ts
-
 import { 
   IsEnum, 
   IsNotEmpty, 
@@ -19,7 +17,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { OrderType, OrderStatus, PaymentType, PaymentStatus } from '../entities/order.entity';
-import { CarClass } from '../entities/driver.entity';
+import { CarClass, DriverStatus } from '../entities/driver.entity';
 
 export class AddressDto {
   @ApiProperty()
@@ -89,6 +87,25 @@ export class CreateOrderDto {
   useFavoriteDriver?: boolean;
 }
 
+export class OrderStatusMetadataDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  comment?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsObject()
+  additionalInfo?: Record<string, any>;
+}
+
 export class UpdateOrderStatusDto {
   @ApiProperty({ enum: OrderStatus })
   @IsEnum(OrderStatus)
@@ -99,6 +116,150 @@ export class UpdateOrderStatusDto {
   @IsString()
   @IsOptional()
   reason?: string;
+
+  @ApiProperty({ type: OrderStatusMetadataDto, required: false })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OrderStatusMetadataDto)
+  metadata?: OrderStatusMetadataDto;
+}
+
+export class MonthlyStatisticsDto {
+  @ApiProperty()
+  @IsNumber()
+  ordersCount!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  completedCount!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  totalAmount!: number;
+}
+
+export class ClientOrderStatisticsDto {
+  @ApiProperty()
+  @IsNumber()
+  totalOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  completedOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  cancelledOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  totalSpent!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  averageOrderCost!: number;
+
+  @ApiProperty({ type: MonthlyStatisticsDto })
+  @ValidateNested()
+  @Type(() => MonthlyStatisticsDto)
+  lastMonthStatistics!: MonthlyStatisticsDto;
+
+  @ApiProperty()
+  @IsString()
+  completionRate!: string;
+}
+
+export class DriverDailyStatisticsDto {
+  @ApiProperty()
+  @IsNumber()
+  ordersCount!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  earnings!: number;
+}
+
+export class DriverOrderStatisticsDto {
+  @ApiProperty()
+  @IsNumber()
+  totalOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  completedOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  cancelledOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  totalEarned!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  averageOrderEarning!: number;
+
+  @ApiProperty({ type: MonthlyStatisticsDto })
+  @ValidateNested()
+  @Type(() => MonthlyStatisticsDto)
+  lastMonthStatistics!: MonthlyStatisticsDto;
+
+  @ApiProperty({ type: DriverDailyStatisticsDto })
+  @ValidateNested()
+  @Type(() => DriverDailyStatisticsDto)
+  todayStatistics!: DriverDailyStatisticsDto;
+
+  @ApiProperty()
+  @IsString()
+  completionRate!: string;
+
+  @ApiProperty()
+  @IsString()
+  averageRating!: string;
+}
+
+export class CarInfoDto {
+  @ApiProperty()
+  @IsString()
+  model!: string;
+
+  @ApiProperty()
+  @IsString()
+  number!: string;
+
+  @ApiProperty()
+  @IsString()
+  color!: string;
+}
+
+export class OrderDriverDto {
+  @ApiProperty()
+  @IsUUID()
+  id!: string;
+
+  @ApiProperty()
+  @IsString()
+  name!: string;
+
+  @ApiProperty()
+  @IsString()
+  phone!: string;
+
+  @ApiProperty({ type: CarInfoDto })
+  @ValidateNested()
+  @Type(() => CarInfoDto)
+  carInfo!: CarInfoDto;
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  rating!: number;
+
+  @ApiProperty({ enum: DriverStatus })
+  @IsEnum(DriverStatus)
+  status!: DriverStatus;
 }
 
 export class OrderResponseDto {
@@ -175,21 +336,19 @@ export class OrderResponseDto {
   cancellationReason?: string;
 
   @ApiProperty()
+  @IsNumber()
+  @IsOptional()
+  rating?: number;
+
+  @ApiProperty()
   createdAt!: Date;
 
   @ApiProperty()
   updatedAt!: Date;
 
-  @ApiProperty({ required: false })
-  driver?: {
-      id: string;
-      name: string;
-      phone: string;
-      carInfo: {
-          model: string;
-          number: string;
-          color: string;
-      };
-      rating: number;
-  };
+  @ApiProperty({ type: OrderDriverDto, required: false })
+  @ValidateNested()
+  @IsOptional()
+  @Type(() => OrderDriverDto)
+  driver?: OrderDriverDto;
 }

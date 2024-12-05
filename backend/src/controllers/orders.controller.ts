@@ -1,5 +1,3 @@
-// src/controllers/orders.controller.ts
-
 import { 
   Controller, 
   Post, 
@@ -11,11 +9,11 @@ import {
   NotFoundException, 
   BadRequestException, 
   Patch,
-  Query,
   Logger 
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from '../services/orders.service';
+import { OrderStatusService } from '../services/order-status.service';
 import { CreateOrderDto, UpdateOrderStatusDto, OrderResponseDto } from '../dto/order.dto';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
@@ -31,7 +29,10 @@ import { RateLimit } from '../decorators/rate-limit.decorator';
 export class OrdersController {
   private readonly logger = new Logger(OrdersController.name);
 
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly orderStatusService: OrderStatusService
+  ) {}
 
   @Post()
   @Roles(UserRole.CLIENT)
@@ -155,7 +156,15 @@ export class OrdersController {
       throw new BadRequestException('Нет прав на изменение статуса');
     }
 
-    return this.ordersService.updateStatus(id, updateStatusDto.status);
+    return this.orderStatusService.updateOrderStatus(
+      id, 
+      updateStatusDto.status,
+      {
+        userId: req.user.sub,
+        role: req.user.role,
+        ...updateStatusDto.metadata
+      }
+    );
   }
 
   @Patch(':id/cancel')
@@ -178,7 +187,7 @@ export class OrdersController {
     }
 
     this.logger.log(`Отмена заказа ${id} пользователем ${req.user.sub}`);
-    return this.ordersService.cancelOrder(id, reason);
+    return this.orderStatusService.updateOrderStatus(id, OrderStatus.CANCELLED, { reason });
   }
 
   private canAccessOrder(order: Order, user: any): boolean {
