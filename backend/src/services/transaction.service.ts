@@ -9,50 +9,50 @@ import { Driver } from '../entities/driver.entity';
 
 @Injectable()
 export class TransactionService {
-  private readonly logger = new Logger(TransactionService.name);
+    private readonly logger = new Logger(TransactionService.name);
 
-  constructor(
-    @InjectRepository(Transaction)
-    private transactionRepository: Repository<Transaction>,
-    @InjectRepository(Driver)
-    private driverRepository: Repository<Driver>
-  ) {}
+    constructor(
+        @InjectRepository(Transaction)
+        private transactionRepository: Repository<Transaction>,
+        @InjectRepository(Driver)
+        private driverRepository: Repository<Driver>
+    ) {}
 
-  async createOrderTransaction(order: Order): Promise<Transaction> {
-    const queryRunner = this.transactionRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    async createOrderTransaction(order: Order): Promise<Transaction> {
+        const queryRunner = this.transactionRepository.manager.connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
 
-    try {
-      // Создаем транзакцию оплаты
-      const transaction = this.transactionRepository.create({
-        order: { id: order.id },
-        driver: order.driver ? { id: order.driver.id } : null,
-        type: TransactionType.PAYMENT,
-        status: TransactionStatus.COMPLETED,
-        amount: order.price,
-        commission: order.commission
-      });
+        try {
+            // Создаем транзакцию оплаты
+            const transaction = this.transactionRepository.create({
+                order: { id: order.id },
+                driver: order.driver ? { id: order.driver.id } : null,
+                type: TransactionType.PAYMENT,
+                status: TransactionStatus.COMPLETED,
+                amount: order.actualPrice || order.estimatedPrice, // Исправлено: используем actualPrice или estimatedPrice
+                commission: order.commission
+            });
 
-      await queryRunner.manager.save(Transaction, transaction);
+            await queryRunner.manager.save(Transaction, transaction);
 
-      // Обновляем баланс комиссии водителя
-      if (order.driver) {
-        order.driver.commissionBalance += order.commission;
-        await queryRunner.manager.save(Driver, order.driver);
-      }
+            // Обновляем баланс комиссии водителя
+            if (order.driver) {
+                order.driver.commissionBalance += order.commission;
+                await queryRunner.manager.save(Driver, order.driver);
+            }
 
-      await queryRunner.commitTransaction();
-      return transaction;
+            await queryRunner.commitTransaction();
+            return transaction;
 
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(`Failed to create transaction for order ${order.id}: ${error.message}`);
-      throw error;
-    } finally {
-      await queryRunner.release();
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error(`Failed to create transaction for order ${order.id}: ${error.message}`);
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
     }
-  }
 
   async getDriverBalance(driverId: string): Promise<{
     totalEarnings: number;

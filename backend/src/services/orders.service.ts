@@ -106,6 +106,7 @@ export class OrdersService {
 
             await queryRunner.commitTransaction();
             await this.cacheManager.set(`order:${savedOrder.id}`, savedOrder, this.CACHE_TTL);
+            await this.invalidateActiveOrdersCache();
 
             return this.findById(savedOrder.id);
 
@@ -187,6 +188,122 @@ export class OrdersService {
         return query.orderBy('order.pickupDatetime', 'ASC').getMany();
     }
 
+    async getActiveOrders(): Promise<Order[]> {
+        const cacheKey = 'active_orders';
+        const cachedOrders = await this.cacheManager.get<Order[]>(cacheKey);
+        
+        if (cachedOrders) {
+            return cachedOrders;
+        }
+
+        const activeStatuses = [
+            OrderStatus.CREATED,
+            OrderStatus.DRIVER_ASSIGNED,
+            OrderStatus.CONFIRMED,
+            OrderStatus.EN_ROUTE,
+            OrderStatus.ARRIVED,
+            OrderStatus.STARTED
+        ];
+
+        const orders = await this.ordersRepository.find({
+            where: { 
+                status: In(activeStatuses)
+            },
+            relations: ['client', 'driver', 'driver.user'],
+            order: { 
+                pickupDatetime: 'ASC'
+            }
+        });
+
+        await this.cacheManager.set(cacheKey, orders, 30); // Кэшируем на 30 секунд
+        return orders;
+    }
+
+    async getAllOrders(): Promise<Order[]> {
+        return this.ordersRepository.find({
+            relations: ['client', 'driver', 'driver.user'],
+            order: {
+                createdAt: 'DESC'
+            }
+        });
+    }
+
+    async getOrdersByStatus(status: OrderStatus): Promise<Order[]> {
+        return this.ordersRepository.find({
+            where: { status },
+            relations: ['client', 'driver', 'driver.user'],
+            order: { createdAt: 'DESC' }
+        });
+    }
+
+    async getOrdersByDateRange(startDate: Date, endDate: Date): Promise<Order[]> {
+        return this.ordersRepository.find({
+            where: {
+                createdAt: Between(startDate, endDate)
+            },
+            relations: ['client', 'driver', 'driver.user'],
+            order: { createdAt: 'DESC' }
+        });
+    }
+
+    async getUpcomingOrders(userId: string): Promise<Order[]> {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(23, 59, 59);
+
+        const now = new Date();
+
+        return this.ordersRepository.find({
+            where: {
+                client: { id: userId },
+                pickupDatetime: Between(now, tomorrow),
+                status: In([
+                    OrderStatus.CREATED,
+                    OrderStatus.DRIVER_ASSIGNED,
+                    OrderStatus.CONFIRMED
+                ])
+            },
+            relations: ['driver', 'driver.user'],
+            order: { pickupDatetime: 'ASC' }
+        });
+    }
+
+    async getAdminDashboardStatistics() {
+        const activeOrders = await this.getActiveOrders();
+        const allOrders = await this.getAllOrders();
+        const now = new Date();
+        const todayStart = new Date(now.setHours(0, 0, 0, 0));
+
+        const todayOrders = allOrders.filter(order => 
+            new Date(order.createdAt) >= todayStart
+        );
+
+        const completedOrders = allOrders.filter(o => 
+            o.status === OrderStatus.COMPLETED
+        );
+
+        return {
+            activeOrders: activeOrders.length,
+            totalOrders: allOrders.length,
+            todayOrders: todayOrders.length,
+            completedOrders: completedOrders.length,
+            cancelledOrders: allOrders.filter(o => 
+                o.status === OrderStatus.CANCELLED
+            ).length,
+            totalRevenue: completedOrders.reduce((sum, order) => 
+                sum + Number(order.actualPrice || order.estimatedPrice), 0
+            ),
+            todayRevenue: todayOrders
+                .filter(o => o.status === OrderStatus.COMPLETED)
+                .reduce((sum, order) => 
+                    sum + Number(order.actualPrice || order.estimatedPrice), 0
+                ),
+            totalCommission: completedOrders.reduce((sum, order) => 
+                sum + Number(order.commission), 0
+            )
+        };
+    }
+
     async updateStatus(id: string, newStatus: OrderStatus): Promise<Order> {
         const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
         await queryRunner.connect();
@@ -226,6 +343,7 @@ export class OrdersService {
             }
 
             await queryRunner.manager.save(Order, order);
+            await this.invalidateActiveOrdersCache();
             await this.cacheManager.del(`order:${id}`);
 
             await this.notificationQueueService.addToQueue({
@@ -285,6 +403,7 @@ export class OrdersService {
             }
 
             await queryRunner.manager.save(Order, order);
+            await this.invalidateActiveOrdersCache();
             await this.cacheManager.del(`order:${id}`);
 
             await this.notificationQueueService.addToQueue({
@@ -318,28 +437,6 @@ export class OrdersService {
         } finally {
             await queryRunner.release();
         }
-    }
-
-    async getUpcomingOrders(userId: string): Promise<Order[]> {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(23, 59, 59);
-
-        const now = new Date();
-
-        return this.ordersRepository.find({
-            where: {
-                client: { id: userId },
-                pickupDatetime: Between(now, tomorrow),
-                status: In([
-                    OrderStatus.CREATED,
-                    OrderStatus.DRIVER_ASSIGNED,
-                    OrderStatus.CONFIRMED
-                ])
-            },
-            relations: ['driver', 'driver.user'],
-            order: { pickupDatetime: 'ASC' }
-        });
     }
 
     async getClientStatistics(clientId: string) {
@@ -491,5 +588,9 @@ export class OrdersService {
         return date.getDate() === today.getDate() &&
             date.getMonth() === today.getMonth() &&
             date.getFullYear() === today.getFullYear();
+    }
+
+    private async invalidateActiveOrdersCache(): Promise<void> {
+        await this.cacheManager.del('active_orders');
     }
 }
