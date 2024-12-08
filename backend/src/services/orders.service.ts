@@ -1,3 +1,5 @@
+// src/services/orders.service.ts
+
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
@@ -30,39 +32,36 @@ export class OrdersService {
     ) {}
 
     async create(createOrderDto: CreateOrderDto, userId: string): Promise<Order> {
-        const pickupDatetime = new Date(createOrderDto.pickupDatetime);
-        
-        if (pickupDatetime < new Date()) {
-            throw new BadRequestException('Время подачи не может быть в прошлом');
-        }
+        // Расширенная валидация заказа
+        await this.validateOrderCreation(createOrderDto);
 
         const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
 
         try {
-            const priceCalculation = await this.priceService.calculatePrice(
-                createOrderDto.type,
-                createOrderDto.carClass,
-                createOrderDto.durationHours,
-                this.getAirportCode(createOrderDto.destinationAddress?.address)
-            );
-
-            const commission = this.priceService.calculateCommission(priceCalculation.finalPrice);
+            // Расчет стоимости
+            const priceCalculation = await this.calculateOrderPrice(createOrderDto);
 
             const order = queryRunner.manager.create(Order, {
                 ...createOrderDto,
                 client: { id: userId },
                 estimatedPrice: priceCalculation.finalPrice,
-                commission,
+                commission: priceCalculation.commission,
                 status: OrderStatus.CREATED,
                 paymentType: createOrderDto.paymentType || PaymentType.CASH,
                 paymentStatus: PaymentStatus.PENDING,
                 bonusPayment: createOrderDto.bonusPayment || 0
             });
 
+            // Обработка оплаты бонусами
+            if (order.bonusPayment > 0) {
+                await this.processOrderPayment(order, queryRunner);
+            }
+
             const savedOrder = await queryRunner.manager.save(Order, order);
 
+            // Уведомление о создании заказа
             await this.notificationQueueService.addToQueue({
                 type: 'orderStatus',
                 payload: {
@@ -70,37 +69,46 @@ export class OrdersService {
                     status: OrderStatus.CREATED,
                     additionalData: {
                         price: priceCalculation.finalPrice,
-                        paymentType: order.paymentType
+                        paymentType: order.paymentType,
+                        basePrice: priceCalculation.basePrice,
+                        discount: priceCalculation.discount
                     }
                 }
             });
 
-            if (!createOrderDto.useFavoriteDriver) {
-                const driver = await this.driverAssignmentService.findDriverForOrder(savedOrder);
-                
-                if (driver) {
-                    const assignmentSuccess = await this.driverAssignmentService.assignDriverToOrder(
-                        savedOrder.id, 
-                        driver.id
-                    );
+            // Назначение водителя
+            let driver = null;
+            if (createOrderDto.useFavoriteDriver) {
+                driver = await this.handleFavoriteDriver(savedOrder, createOrderDto);
+            }
+            
+            if (!driver) {
+                driver = await this.driverAssignmentService.findDriverForOrder(savedOrder);
+            }
 
-                    if (assignmentSuccess) {
-                        savedOrder.driver = driver;
-                        savedOrder.status = OrderStatus.DRIVER_ASSIGNED;
-                        await queryRunner.manager.save(Order, savedOrder);
+            if (driver) {
+                const assignmentSuccess = await this.driverAssignmentService.assignDriverToOrder(
+                    savedOrder.id, 
+                    driver.id
+                );
 
-                        await this.notificationQueueService.addToQueue({
-                            type: 'orderStatus',
-                            payload: {
-                                order: savedOrder,
-                                status: OrderStatus.DRIVER_ASSIGNED,
-                                additionalData: {
-                                    driverName: driver.user.firstName,
-                                    carInfo: driver.carInfo
-                                }
+                if (assignmentSuccess) {
+                    savedOrder.driver = driver;
+                    savedOrder.status = OrderStatus.DRIVER_ASSIGNED;
+                    await queryRunner.manager.save(Order, savedOrder);
+
+                    await this.notificationQueueService.addToQueue({
+                        type: 'orderStatus',
+                        payload: {
+                            order: savedOrder,
+                            status: OrderStatus.DRIVER_ASSIGNED,
+                            additionalData: {
+                                driverName: driver.user.firstName,
+                                carInfo: driver.carInfo,
+                                estimatedArrivalTime: await this.calculateETA(savedOrder)
                             }
-                        });
-                    }
+                        }
+                    });
                 }
             }
 
@@ -215,7 +223,7 @@ export class OrdersService {
             }
         });
 
-        await this.cacheManager.set(cacheKey, orders, 30); // Кэшируем на 30 секунд
+        await this.cacheManager.set(cacheKey, orders, 30);
         return orders;
     }
 
@@ -304,6 +312,29 @@ export class OrdersService {
         };
     }
 
+    async calculateOrderPrice(createOrderDto: CreateOrderDto): Promise<{
+        basePrice: number;
+        discount: number;
+        finalPrice: number;
+        commission: number;
+    }> {
+        const priceCalculation = await this.priceService.calculatePrice(
+            createOrderDto.type,
+            createOrderDto.carClass,
+            createOrderDto.durationHours,
+            this.getAirportCode(createOrderDto.destinationAddress?.address)
+        );
+
+        const commission = this.priceService.calculateCommission(priceCalculation.finalPrice);
+
+        return {
+            basePrice: priceCalculation.basePrice,
+            discount: priceCalculation.discount,
+            finalPrice: priceCalculation.finalPrice,
+            commission
+        };
+    }
+
     async updateStatus(id: string, newStatus: OrderStatus): Promise<Order> {
         const queryRunner = this.ordersRepository.manager.connection.createQueryRunner();
         await queryRunner.connect();
@@ -325,17 +356,10 @@ export class OrdersService {
             };
 
             if (newStatus === OrderStatus.COMPLETED && order.driver) {
-                order.actualPrice = order.estimatedPrice;
-                order.paymentStatus = PaymentStatus.COMPLETED;
-                
+                await this.handleOrderCompletion(order, queryRunner);
                 additionalData.price = order.actualPrice;
                 additionalData.driverEarnings = order.actualPrice - order.commission;
                 additionalData.commission = order.commission;
-
-                await this.transactionService.createOrderTransaction(order);
-                
-                order.driver.totalRides += 1;
-                await queryRunner.manager.save(Driver, order.driver);
             }
 
             if (newStatus === OrderStatus.EN_ROUTE) {
@@ -549,6 +573,90 @@ export class OrdersService {
                     )
             }
         };
+    }
+
+    // Private helper methods
+    private async validateOrderCreation(createOrderDto: CreateOrderDto): Promise<void> {
+        const pickupDatetime = new Date(createOrderDto.pickupDatetime);
+        const minAdvanceTime = 30; // минимальное время для предзаказа в минутах
+        
+        if (pickupDatetime < new Date()) {
+            throw new BadRequestException('Время подачи не может быть в прошлом');
+        }
+
+        const minutesUntilPickup = Math.floor((pickupDatetime.getTime() - Date.now()) / (1000 * 60));
+        
+        if (createOrderDto.type === OrderType.PRE_ORDER && minutesUntilPickup < minAdvanceTime) {
+            throw new BadRequestException(
+                `Предварительный заказ должен быть оформлен минимум за ${minAdvanceTime} минут`
+            );
+        }
+
+        if (createOrderDto.type === OrderType.HOURLY) {
+            if (!createOrderDto.durationHours) {
+                throw new BadRequestException('Для почасовой аренды необходимо указать длительность');
+            }
+            if (createOrderDto.durationHours < 2 || createOrderDto.durationHours > 12) {
+                throw new BadRequestException('Длительность аренды должна быть от 2 до 12 часов');
+            }
+        }
+
+        if (createOrderDto.type === OrderType.AIRPORT && !this.getAirportCode(createOrderDto.destinationAddress?.address)) {
+            throw new BadRequestException('Для заказа в аэропорт необходимо указать корректный адрес аэропорта');
+        }
+    }
+
+    private async handleOrderCompletion(order: Order, queryRunner: any): Promise<void> {
+        order.actualPrice = order.estimatedPrice;
+        order.paymentStatus = PaymentStatus.COMPLETED;
+        
+        if (order.driver) {
+            order.driver.totalRides += 1;
+            await queryRunner.manager.save(Driver, order.driver);
+            
+            await this.transactionService.createOrderTransaction(order);
+        }
+        
+        // Начисление бонусов клиенту
+        if (order.actualPrice > 0) {
+            const bonusAmount = Math.floor(order.actualPrice * 0.05); // 5% бонусов
+            const client = await queryRunner.manager.findOne('User', order.client.id);
+            client.bonusBalance += bonusAmount;
+            await queryRunner.manager.save('User', client);
+        }
+    }
+
+    private async processOrderPayment(order: Order, queryRunner: any): Promise<void> {
+        if (order.bonusPayment > 0) {
+            const client = await queryRunner.manager.findOne('User', order.client.id);
+            if (client.bonusBalance < order.bonusPayment) {
+                throw new BadRequestException('Недостаточно бонусов для оплаты');
+            }
+            
+            client.bonusBalance -= order.bonusPayment;
+            await queryRunner.manager.save('User', client);
+        }
+
+        order.paymentStatus = PaymentStatus.PENDING;
+        if (order.bonusPayment === order.estimatedPrice) {
+            order.paymentStatus = PaymentStatus.COMPLETED;
+        }
+    }
+
+    private async handleFavoriteDriver(order: Order, createOrderDto: CreateOrderDto): Promise<Driver | null> {
+        if (!createOrderDto.useFavoriteDriver) {
+            return null;
+        }
+
+        const favoriteDrivers = await this.driversRepository
+            .createQueryBuilder('driver')
+            .innerJoin('favorite_drivers', 'fav', 'fav.driver_id = driver.id')
+            .where('fav.client_id = :clientId', { clientId: order.client.id })
+            .andWhere('driver.status = :status', { status: DriverStatus.ONLINE })
+            .andWhere('driver.car_class = :carClass', { carClass: order.carClass })
+            .getMany();
+
+        return favoriteDrivers.length > 0 ? favoriteDrivers[0] : null;
     }
 
     private isValidStatusTransition(currentStatus: OrderStatus, newStatus: OrderStatus): boolean {

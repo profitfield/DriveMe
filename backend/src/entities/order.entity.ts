@@ -1,18 +1,22 @@
-import {
-    Entity,
-    PrimaryGeneratedColumn,
-    Column,
-    CreateDateColumn,
+// src/entities/order.entity.ts
+
+import { 
+    Entity, 
+    PrimaryGeneratedColumn, 
+    Column, 
+    CreateDateColumn, 
     UpdateDateColumn,
     ManyToOne,
-    JoinColumn
+    JoinColumn,
+    Index
 } from 'typeorm';
 import { User } from './user.entity';
-import { Driver, CarClass } from './driver.entity';
+import { Driver } from './driver.entity';
+import { CarClass } from './driver.entity';
 
 export enum OrderType {
     PRE_ORDER = 'pre_order',
-    HOURLY = 'hourly', 
+    HOURLY = 'hourly',
     AIRPORT = 'airport'
 }
 
@@ -41,22 +45,12 @@ export enum PaymentStatus {
     REFUNDED = 'refunded'
 }
 
-interface Address {
-    address: string;
-    latitude: number;
-    longitude: number;
-}
-
 @Entity('orders')
 export class Order {
     @PrimaryGeneratedColumn('uuid')
     id!: string;
 
-    @Column({ 
-        name: 'order_number',
-        unique: true,
-        nullable: false
-    })
+    @Column({ name: 'order_number', unique: true })
     orderNumber!: string;
 
     @ManyToOne(() => User)
@@ -78,6 +72,7 @@ export class Order {
         enum: OrderStatus,
         default: OrderStatus.CREATED
     })
+    @Index()
     status!: OrderStatus;
 
     @Column({
@@ -97,22 +92,35 @@ export class Order {
         type: 'jsonb',
         name: 'pickup_address'
     })
-    pickupAddress!: Address;
+    pickupAddress!: {
+        address: string;
+        latitude: number;
+        longitude: number;
+    };
 
     @Column({
         type: 'jsonb',
         name: 'destination_address',
         nullable: true
     })
-    destinationAddress?: Address;
+    destinationAddress?: {
+        address: string;
+        latitude: number;
+        longitude: number;
+    };
+
+    @Column({
+        name: 'duration_hours',
+        type: 'integer',
+        nullable: true
+    })
+    durationHours?: number;
 
     @Column({
         name: 'estimated_price',
         type: 'decimal',
         precision: 10,
-        scale: 2,
-        nullable: false,
-        default: 0.00
+        scale: 2
     })
     estimatedPrice!: number;
 
@@ -131,13 +139,6 @@ export class Order {
         scale: 2
     })
     commission!: number;
-
-    @Column({
-        name: 'duration_hours',
-        type: 'integer',
-        nullable: true
-    })
-    durationHours?: number;
 
     @Column({
         name: 'payment_type',
@@ -172,14 +173,64 @@ export class Order {
     cancellationReason?: string;
 
     @Column({
-        name: 'rating',
         type: 'decimal',
         precision: 2,
         scale: 1,
-        nullable: true,
-        comment: 'Оценка поездки клиентом от 1.0 до 5.0'
+        nullable: true
     })
     rating?: number;
+
+    @Column({
+        name: 'rating_comment',
+        type: 'text',
+        nullable: true
+    })
+    ratingComment?: string;
+
+    @Column({
+        name: 'confirmed_at',
+        type: 'timestamp with time zone',
+        nullable: true
+    })
+    confirmedAt?: Date;
+
+    @Column({
+        name: 'started_at',
+        type: 'timestamp with time zone',
+        nullable: true
+    })
+    startedAt?: Date;
+
+    @Column({
+        name: 'completed_at',
+        type: 'timestamp with time zone',
+        nullable: true
+    })
+    completedAt?: Date;
+
+    @Column({
+        name: 'cancelled_at',
+        type: 'timestamp with time zone',
+        nullable: true
+    })
+    cancelledAt?: Date;
+
+    @Column({
+        name: 'start_location',
+        type: 'jsonb',
+        nullable: true
+    })
+    startLocation?: {
+        latitude: number;
+        longitude: number;
+    };
+
+    @Column({
+        name: 'estimated_arrival_time',
+        type: 'timestamp with time zone',
+        nullable: true
+    })
+    estimatedArrivalTime?: Date;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;

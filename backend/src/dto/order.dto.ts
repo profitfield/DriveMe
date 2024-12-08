@@ -1,3 +1,5 @@
+// src/dto/order.dto.ts
+
 import { 
   IsEnum, 
   IsNotEmpty, 
@@ -5,14 +7,15 @@ import {
   IsNumber, 
   IsObject, 
   IsOptional, 
-  IsDateString, 
-  Min, 
-  Max, 
+  IsDateString,
+  Min,
+  Max,
   ValidateNested,
   IsLatitude,
   IsLongitude,
   IsUUID,
-  IsBoolean
+  IsBoolean,
+  IsArray
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -124,101 +127,6 @@ export class UpdateOrderStatusDto {
   metadata?: OrderStatusMetadataDto;
 }
 
-export class MonthlyStatisticsDto {
-  @ApiProperty()
-  @IsNumber()
-  ordersCount!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  completedCount!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  totalAmount!: number;
-}
-
-export class ClientOrderStatisticsDto {
-  @ApiProperty()
-  @IsNumber()
-  totalOrders!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  completedOrders!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  cancelledOrders!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  totalSpent!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  averageOrderCost!: number;
-
-  @ApiProperty({ type: MonthlyStatisticsDto })
-  @ValidateNested()
-  @Type(() => MonthlyStatisticsDto)
-  lastMonthStatistics!: MonthlyStatisticsDto;
-
-  @ApiProperty()
-  @IsString()
-  completionRate!: string;
-}
-
-export class DriverDailyStatisticsDto {
-  @ApiProperty()
-  @IsNumber()
-  ordersCount!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  earnings!: number;
-}
-
-export class DriverOrderStatisticsDto {
-  @ApiProperty()
-  @IsNumber()
-  totalOrders!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  completedOrders!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  cancelledOrders!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  totalEarned!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  averageOrderEarning!: number;
-
-  @ApiProperty({ type: MonthlyStatisticsDto })
-  @ValidateNested()
-  @Type(() => MonthlyStatisticsDto)
-  lastMonthStatistics!: MonthlyStatisticsDto;
-
-  @ApiProperty({ type: DriverDailyStatisticsDto })
-  @ValidateNested()
-  @Type(() => DriverDailyStatisticsDto)
-  todayStatistics!: DriverDailyStatisticsDto;
-
-  @ApiProperty()
-  @IsString()
-  completionRate!: string;
-
-  @ApiProperty()
-  @IsString()
-  averageRating!: string;
-}
-
 export class CarInfoDto {
   @ApiProperty()
   @IsString()
@@ -298,13 +206,6 @@ export class OrderResponseDto {
   @Type(() => AddressDto)
   destinationAddress?: AddressDto;
 
-  @ApiProperty({ required: false })
-  @IsNumber()
-  @IsOptional()
-  @Min(1)
-  @Max(12)
-  durationHours?: number;
-
   @ApiProperty()
   @IsNumber()
   estimatedPrice!: number;
@@ -335,7 +236,7 @@ export class OrderResponseDto {
   @IsOptional()
   cancellationReason?: string;
 
-  @ApiProperty()
+  @ApiProperty({ required: false })
   @IsNumber()
   @IsOptional()
   rating?: number;
@@ -351,4 +252,151 @@ export class OrderResponseDto {
   @IsOptional()
   @Type(() => OrderDriverDto)
   driver?: OrderDriverDto;
+}
+
+export class OrderFilterDto {
+  @ApiProperty({ enum: OrderStatus, required: false })
+  @IsEnum(OrderStatus)
+  @IsOptional()
+  status?: OrderStatus;
+
+  @ApiProperty({ enum: OrderType, required: false })
+  @IsEnum(OrderType)
+  @IsOptional()
+  type?: OrderType;
+
+  @ApiProperty({ required: false })
+  @IsDateString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiProperty({ required: false })
+  @IsDateString()
+  @IsOptional()
+  endDate?: string;
+
+  @ApiProperty({ required: false })
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiProperty({ required: false })
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  @Max(100)
+  limit?: number = 10;
+}
+
+export class PaginatedOrdersResponseDto {
+  @ApiProperty({ type: [OrderResponseDto] })
+  @ValidateNested({ each: true })
+  @Type(() => OrderResponseDto)
+  items!: OrderResponseDto[];
+
+  @ApiProperty()
+  @IsNumber()
+  total!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  page!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  limit!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  pages!: number;
+}
+
+export class OrderPriceResponseDto {
+  @ApiProperty()
+  @IsNumber()
+  basePrice!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  discount!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  finalPrice!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  commission!: number;
+
+  @ApiProperty({ type: 'object' })
+  @IsObject()
+  details!: {
+      hourlyRate?: number;
+      duration?: number;
+      discountPercent?: number;
+      airportFee?: number;
+  };
+}
+
+export class RateOrderDto {
+  @ApiProperty()
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  comment?: string;
+}
+
+export class OrderStatisticsDto {
+  @ApiProperty()
+  @IsNumber()
+  totalOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  completedOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  cancelledOrders!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  totalAmount!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  averageRating!: number;
+
+  @ApiProperty({ type: 'object' })
+  @IsObject()
+  monthlyStatistics!: {
+      ordersCount: number;
+      completedCount: number;
+      totalAmount: number;
+  };
+}
+
+export class DriverOrderStatisticsDto extends OrderStatisticsDto {
+  @ApiProperty()
+  @IsNumber()
+  totalEarnings!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  averageEarningPerOrder!: number;
+
+  @ApiProperty({ type: 'object' })
+  @IsObject()
+  todayStatistics!: {
+      ordersCount: number;
+      earnings: number;
+  };
 }
